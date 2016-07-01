@@ -2,10 +2,9 @@
 
 const debug = require('debug')('ReactNativePackager:DependencyGraph');
 
-const Promise = require('Promise');
+const fp = require('../fastpath');
 const fs = require('io');
-
-const path = require('../fastpath');
+const Promise = require('Promise');
 
 function nodeRecReadDir(roots, {ignoreFilePath, extensions}) {
   const queue = roots.slice();
@@ -21,7 +20,7 @@ function nodeRecReadDir(roots, {ignoreFilePath, extensions}) {
     }
 
     return fs.async.readDir(currDir)
-      .then(files => files.map(f => path.join(currDir, f)))
+      .then(files => files.map(f => fp.join(currDir, f)))
       .then(files => {
         return Promise.map(f =>
           fs.async.stats(f).fail(handleBrokenLink)
@@ -43,7 +42,7 @@ function nodeRecReadDir(roots, {ignoreFilePath, extensions}) {
           }
 
           if (filePath.match(extPattern)) {
-            retFiles.push(path.resolve(filePath));
+            retFiles.push(fp.resolve(filePath));
           }
         });
 

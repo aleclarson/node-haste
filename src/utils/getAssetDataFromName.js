@@ -8,11 +8,11 @@
  */
 'use strict';
 
-const path = require('../fastpath');
+const fp = require('../fastpath');
 const getPlatformExtension = require('./getPlatformExtension');
 
 function getAssetDataFromName(filename, platforms) {
-  const ext = path.extname(filename);
+  const ext = fp.extname(filename);
   const platformExt = getPlatformExtension(filename, platforms);
 
   let pattern = '@([\\d\\.]+)x';
@@ -47,7 +47,7 @@ function getAssetDataFromName(filename, platforms) {
     resolution: resolution,
     assetName: assetName,
     type: ext.slice(1),
-    name: path.basename(assetName, ext),
+    name: fp.basename(assetName, ext),
     platform: platformExt,
   };
 }

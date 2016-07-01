@@ -10,8 +10,8 @@
 
 const fs = require('io');
 
+const fp = require('./fastpath');
 const readWhile = require('./utils/readWhile');
-const path = require('./fastpath');
 
 const NOT_FOUND_IN_ROOTS = 'NotFoundInRootsError';
 
@@ -53,11 +53,11 @@ class File {
       throw new Error(`No parent to delete ${this.path} from`);
     }
 
-    delete this.parent.children[path.basename(this.path)];
+    delete this.parent.children[fp.basename(this.path)];
   }
 
   addChild(file, fileMap) {
-    const parts = file.path.substr(this.path.length + 1).split(path.sep);
+    const parts = file.path.substr(this.path.length + 1).split(fp.sep);
     if (parts.length === 0) {
       return;
     }
@@ -67,7 +67,7 @@ class File {
     } else if (this.children[parts[0]]) {
       this.children[parts[0]].addChild(file, fileMap);
     } else {
-      const dir = new File(this.path + path.sep + parts[0], true);
+      const dir = new File(this.path + fp.sep + parts[0], true);
       dir.parent = this;
       this.children[parts[0]] = dir;
       fileMap[dir.path] = dir;
@@ -82,7 +82,7 @@ class File {
   }
 
   _getFileFromPath(filePath) {
-    const parts = path.relative(this.path, filePath).split(path.sep);
+    const parts = fp.relative(this.path, filePath).split(fp.sep);
 
     /*eslint consistent-this:0*/
     let file = this;
@@ -110,7 +110,7 @@ class File {
 
   _createFileFromPath(filePath) {
     var file = this;
-    const parts = path.relative(this.path, filePath).split(path.sep);
+    const parts = fp.relative(this.path, filePath).split(fp.sep);
     parts.forEach((part, i) => {
       const newPath = file.path + "/" + part;
       var newFile = this._getFileFromPath(newPath);

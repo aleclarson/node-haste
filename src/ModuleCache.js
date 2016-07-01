@@ -4,7 +4,7 @@ const AssetModule = require('./AssetModule');
 const Package = require('./Package');
 const Module = require('./Module');
 const Polyfill = require('./Polyfill');
-const path = require('./fastpath');
+const fp = require('./fastpath');
 
 class ModuleCache {
 
@@ -126,7 +126,7 @@ class ModuleCache {
   }
 
   _processFileChange(type, filePath, root) {
-    const absPath = path.join(root, filePath);
+    const absPath = fp.join(root, filePath);
 
     if (this._moduleCache[absPath]) {
       this._moduleCache[absPath]._processFileChange(type);

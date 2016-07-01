@@ -1,12 +1,12 @@
 'use strict';
 
-const path = require('./fastpath');
+const fp = require('./fastpath');
 
 class Package {
 
   constructor({ file, fastfs, moduleCache, cache }) {
     this.path = file;
-    this.root = path.dirname(this.path);
+    this.root = fp.dirname(this.path);
     this._fastfs = fastfs;
     this.type = 'Package';
     this._moduleCache = moduleCache;
@@ -24,7 +24,7 @@ class Package {
 
       let ext;
       if (main) {
-        ext = path.extname(main) || '.js';
+        ext = fp.extname(main) || '.js';
         main = main.replace(/^\.\//, ''); // Remove leading dot-slash
         main = main.replace(/(\.js|\.json)$/, ''); // Remove trailing extension
       } else {
@@ -42,7 +42,7 @@ class Package {
         main += ext;
       }
 
-      return path.join(this.root, main);
+      return fp.join(this.root, main);
     });
   }
 
@@ -78,7 +78,7 @@ class Package {
       }
 
       // Module names can be redirected as is.
-      if (name[0] !== path.sep) {
+      if (name[0] !== fp.sep) {
         result = replacements[name];
         if (result !== undefined) {
           return result;
@@ -97,13 +97,13 @@ class Package {
 
         // Return an absolute path!
         if (typeof filePath === 'string') {
-          return path.join(this.root, filePath);
+          return fp.join(this.root, filePath);
         }
       }
 
       // Redirect absolute paths, but first convert it to a
       // path that is relative to the 'package.json' file!
-      const relPath = './' + path.relative(this.root, name);
+      const relPath = './' + fp.relative(this.root, name);
 
       // Try resolving as is.
       result = redirect(relPath);

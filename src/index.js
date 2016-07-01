@@ -12,7 +12,7 @@ const emptyFunction = require('emptyFunction');
 const util = require('util');
 const fs = require('io');
 
-const path = require('./fastpath');
+const fp = require('./fastpath');
 const Cache = require('./Cache');
 const crawl = require('./crawlers');
 const Fastfs = require('./fastfs');
@@ -151,7 +151,7 @@ class DependencyGraph {
           const map = hasteModules[moduleName];
           const mod = map.generic || Object.keys(map)[0];
           if (mod && mod.path) {
-            json[moduleName] = path.relative(lotus.path, mod.path);
+            json[moduleName] = fp.relative(lotus.path, mod.path);
           }
         });
 
@@ -260,15 +260,15 @@ class DependencyGraph {
   }
 
   _getAbsolutePath(filePath) {
-    if (path.isAbsolute(filePath)) {
-      return path.resolve(filePath);
+    if (fp.isAbsolute(filePath)) {
+      return fp.resolve(filePath);
     }
 
     for (let i = 0; i < this._opts.projectRoots.length; i++) {
       const root = this._opts.projectRoots[i];
-      const potentialAbsPath = path.join(root, filePath);
+      const potentialAbsPath = fp.join(root, filePath);
       if (this._fastfs.fileExists(potentialAbsPath)) {
-        return path.resolve(potentialAbsPath);
+        return fp.resolve(potentialAbsPath);
       }
     }
 
@@ -280,7 +280,7 @@ class DependencyGraph {
   }
 
   _processFileChange(type, filePath, root, fstat) {
-    const absPath = path.join(root, filePath);
+    const absPath = fp.join(root, filePath);
     if (!this._opts.ignoreFilePath(absPath)) {
       return;
     }

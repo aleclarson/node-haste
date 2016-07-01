@@ -14,8 +14,6 @@ const fs = require('io');
 const os = require('os');
 const Promise = require('Promise');
 
-const path = require('../fastpath');
-
 function getObjectValues(object) {
   return Object.keys(object).map(key => object[key]);
 }
@@ -50,11 +48,11 @@ class Cache {
   static getCacheFilePath(tmpdir, ...args) {
     const hash = crypto.createHash('md5');
     args.forEach(arg => hash.update(arg));
-    return path.join(tmpdir, hash.digest('hex'));
+    return fp.join(tmpdir, hash.digest('hex'));
   }
 
   get(filepath, field, loaderCb) {
-    if (!path.isAbsolute(filepath)) {
+    if (!fp.isAbsolute(filepath)) {
       throw new Error('Use absolute paths');
     }
 

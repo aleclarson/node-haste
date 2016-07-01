@@ -13,8 +13,8 @@ const inArray = require('in-array');
 const crypto = require('crypto');
 const sync = require('sync');
 
+const fp = require('./fastpath');
 const docblock = require('./utils/docblock');
-const path = require('./fastpath');
 const extractRequires = require('./utils/extractRequires');
 
 class Module {
@@ -99,7 +99,7 @@ class Module {
           return id;
         }
         if (!this._isHasteCompatible()) {
-          return path.relative(lotus.path, this.path);
+          return fp.relative(lotus.path, this.path);
         }
         const pkg = this.getPackage();
         if (!pkg) {
@@ -108,7 +108,7 @@ class Module {
         }
         return this.isMain()
           .then(isMain => pkg.getName().then(name =>
-            isMain ? name : path.relative(lotus.path, this.path)));
+            isMain ? name : fp.relative(lotus.path, this.path)));
       })
     )
   }
@@ -162,7 +162,7 @@ class Module {
   }
 
   isJSON() {
-    return path.extname(this.path) === '.json';
+    return fp.extname(this.path) === '.json';
   }
 
   isAsset() {

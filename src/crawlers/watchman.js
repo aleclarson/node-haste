@@ -2,7 +2,7 @@
 
 const Promise = require('Promise');
 
-const path = require('../fastpath');
+const fp = require('../fastpath');
 const isDescendant = require('../utils/isDescendant');
 
 const watchmanURL = 'https://facebook.github.io/watchman/docs/troubleshooting.html';
@@ -33,7 +33,7 @@ function watchmanRecReadDir(roots, {ignoreFilePath, fileWatcher, exts}) {
       for (let i = 0; i < roots.length; i++) {
         const root = roots[i];
         if (isDescendant(watchedRoot, root)) {
-          dirExpr.push(['dirname', path.relative(watchedRoot, root)]);
+          dirExpr.push(['dirname', fp.relative(watchedRoot, root)]);
         }
       }
 
@@ -48,7 +48,7 @@ function watchmanRecReadDir(roots, {ignoreFilePath, fileWatcher, exts}) {
         }
 
         resp.files.forEach(filePath => {
-          filePath = watchedRoot + path.sep + filePath;
+          filePath = watchedRoot + fp.sep + filePath;
           if (!ignoreFilePath(filePath)) {
             files.push(filePath);
           }

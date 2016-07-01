@@ -12,7 +12,7 @@ const {EventEmitter} = require('events');
 const emptyFunction = require('emptyFunction');
 
 const File = require('./File');
-const path = require('./fastpath');
+const fp = require('./fastpath');
 const isDescendant = require('./utils/isDescendant');
 const matchExtensions = require('./utils/matchExtensions');
 
@@ -49,7 +49,7 @@ class Fastfs extends EventEmitter {
         const root = this._getRoot(filePath);
         if (root) {
           const newFile = new File(filePath, false);
-          const dirname = filePath.substr(0, filePath.lastIndexOf(path.sep));
+          const dirname = filePath.substr(0, filePath.lastIndexOf(fp.sep));
           const parent = this._fastPaths[dirname];
           this._fastPaths[filePath] = newFile;
           if (parent) {
@@ -150,18 +150,18 @@ class Fastfs extends EventEmitter {
 
     return Object.keys(dirFile.children)
       .filter(name => name.match(pattern))
-      .map(name => path.join(dirFile.path, name));
+      .map(name => fp.join(dirFile.path, name));
   }
 
   _createRoots(rootPaths, each = emptyFunction) {
     return rootPaths && rootPaths.map(rootPath => {
       // If the path ends in a separator ("/"), remove it to make string
       // operations on paths safer.
-      if (rootPath.endsWith(path.sep)) {
+      if (rootPath.endsWith(fp.sep)) {
         rootPath = rootPath.substr(0, rootPath.length - 1);
       }
 
-      rootPath = path.resolve(rootPath);
+      rootPath = fp.resolve(rootPath);
       const root = new File(rootPath, true);
       each(root);
       return root;
@@ -200,7 +200,7 @@ class Fastfs extends EventEmitter {
   }
 
   _getFile(filePath) {
-    filePath = path.resolve(filePath);
+    filePath = fp.resolve(filePath);
     if (!this._fastPaths[filePath]) {
       const root = this._getAndAssertRoot(filePath);
       if (this._ignoreFilePath(filePath)) {
@@ -214,7 +214,7 @@ class Fastfs extends EventEmitter {
   }
 
   _processFileChange(type, filePath, rootPath, fstat) {
-    const absPath = path.resolve(rootPath, filePath);
+    const absPath = fp.resolve(rootPath, filePath);
     if (this._ignoreFilePath(absPath)) { return }
     if (fstat && fstat.isDirectory()) { return }
 

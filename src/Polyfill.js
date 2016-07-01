@@ -1,8 +1,8 @@
 'use strict';
 
-const path = require('path');
 const lotus = require('lotus-require');
 const Module = require('./Module');
+const fp = require('./fastpath');
 
 class Polyfill extends Module {
   constructor(options) {
@@ -17,7 +17,7 @@ class Polyfill extends Module {
 
   getName() {
     return Promise.try(() => {
-      if (path.isAbsolute(this._id)) {
+      if (fp.isAbsolute(this._id)) {
         return lotus.relative(this._id);
       }
       return this._id;

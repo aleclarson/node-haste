@@ -8,14 +8,14 @@
  */
 'use strict';
 
-const path = require('../fastpath');
+const fp = require('../fastpath');
 
 module.exports = function resolveFilePlatform(filePath, {
   platform,
   preferNativePlatform,
   resolver,
 }) {
-  const ext = path.extname(filePath);
+  const ext = fp.extname(filePath);
 
   let result = resolver(filePath + '.' + platform + ext);
   if (result !== undefined) {

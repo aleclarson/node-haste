@@ -8,14 +8,14 @@
  */
 'use strict';
 
-const path = require('../fastpath');
+const fp = require('../fastpath');
 
 module.exports = function resolveFileExtension(filePath, {
   extensions,
   resolver,
 }) {
   // If an extension is provided, don't try the default extensions.
-  if (path.extname(filePath)) {
+  if (fp.extname(filePath)) {
     return resolver(filePath);
   }
 

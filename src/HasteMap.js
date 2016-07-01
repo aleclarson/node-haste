@@ -10,13 +10,13 @@
 
 const Promise = require('Promise');
 
-const path = require('./fastpath');
+const fp = require('./fastpath');
 const matchExtensions = require('./utils/matchExtensions');
 const getPlatformExtension = require('./utils/getPlatformExtension');
 
 const GENERIC_PLATFORM = 'generic';
 const NATIVE_PLATFORM = 'native';
-const PACKAGE_JSON = path.sep + 'package.json';
+const PACKAGE_JSON = fp.sep + 'package.json';
 
 class HasteMap {
   constructor({
@@ -68,7 +68,7 @@ class HasteMap {
       }
 
       if (matchExtensions(this._projectExts, absPath)) {
-        if (path.basename(absPath) === 'package.json') {
+        if (fp.basename(absPath) === 'package.json') {
           return this._processHastePackage(absPath);
         } else {
           return this._processHasteModule(absPath);
@@ -107,7 +107,7 @@ class HasteMap {
   }
 
   _processHastePackage(file) {
-    file = path.resolve(file);
+    file = fp.resolve(file);
     const pkg = this._moduleCache.getPackage(file);
     return pkg.isHaste()
       .then(isHaste =>

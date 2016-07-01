@@ -24,7 +24,7 @@ const MapWithDefaults = require('./utils/MapWithDefaults');
 const AsyncTaskGroup = require('./utils/AsyncTaskGroup');
 const NullModule = require('./NullModule');
 const Module = require('./Module');
-const path = require('./fastpath');
+const fp = require('./fastpath');
 
 class ResolutionRequest {
   constructor({
@@ -70,7 +70,7 @@ class ResolutionRequest {
       log.white(toModuleName);
       log.moat(0);
       log.gray('  fromModule = ');
-      log.white(path.relative(lotus.path, fromModule.path));
+      log.white(fp.relative(lotus.path, fromModule.path));
       log.moat(1);
       if (this._shouldThrowOnUnresolvedErrors(this._entryPath, this._platform)) {
         throw error;
@@ -219,7 +219,7 @@ class ResolutionRequest {
     if (pattern) {
       mocks = Object.create(null);
       this._fastfs.matchFilesByPattern(pattern).forEach(file =>
-        mocks[path.basename(file, path.extname(file))] = file
+        mocks[fp.basename(file, fp.extname(file))] = file
       );
     }
     return Promise(mocks);
@@ -243,7 +243,7 @@ class ResolutionRequest {
       if (dep && dep.type === 'Package') {
         break;
       }
-      packageName = path.dirname(packageName);
+      packageName = fp.dirname(packageName);
     }
 
     if (dep && dep.type === 'Package') {
@@ -251,9 +251,9 @@ class ResolutionRequest {
         if (toModuleName === packageName) {
           return this._loadAsDir(dep.root, fromModule, toModuleName);
         }
-        const filePath = path.join(
+        const filePath = fp.join(
           dep.root,
-          path.relative(packageName, toModuleName)
+          fp.relative(packageName, toModuleName)
         );
         return tryResolve(
           () => this._loadAsFile(filePath, fromModule, toModuleName),
@@ -318,8 +318,8 @@ class ResolutionRequest {
     }
     let absPath = toModuleName;
     if (toModuleName[0] === '.') {
-      absPath = path.resolve(
-        path.dirname(fromModule.path),
+      absPath = fp.resolve(
+        fp.dirname(fromModule.path),
         toModuleName
       );
     }
@@ -372,7 +372,7 @@ class ResolutionRequest {
   _loadAsFile(filePath, fromModule, toModule) {
     return Promise.try(() => {
       if (matchExtensions(this._assetExts, filePath)) {
-        const dirPath = path.dirname(filePath);
+        const dirPath = fp.dirname(filePath);
         if (!this._dirExists(dirPath)) {
           throw new UnableToResolveError(
             fromModule,
@@ -468,16 +468,16 @@ To resolve try the following:
 
   _isModuleName(filePath) {
     const firstChar = filePath[0];
-    return firstChar !== '.' && firstChar !== path.sep;
+    return firstChar !== '.' && firstChar !== fp.sep;
   }
 
   _resolvePackageMain(dirPath) {
-    const pkgPath = path.join(dirPath, 'package.json');
+    const pkgPath = fp.join(dirPath, 'package.json');
     if (this._fileExists(pkgPath)) {
       return this._moduleCache.getPackage(pkgPath).getMain();
     }
     return Promise(
-      path.join(dirPath, 'index')
+      fp.join(dirPath, 'index')
     );
   }
 
@@ -497,8 +497,8 @@ To resolve try the following:
 
     // Convert relative paths to absolutes.
     if (toModuleName[0] === '.') {
-      toModuleName = path.resolve(
-        path.dirname(fromModule.path),
+      toModuleName = fp.resolve(
+        fp.dirname(fromModule.path),
         toModuleName
       );
 
@@ -513,8 +513,8 @@ To resolve try the following:
     }
 
     // Prepend $LOTUS_PATH to any module names.
-    else if (toModuleName[0] !== path.sep) {
-      toModuleName = path.join(lotus.path, toModuleName);
+    else if (toModuleName[0] !== fp.sep) {
+      toModuleName = fp.join(lotus.path, toModuleName);
     }
 
     if (fs.sync.isDir(toModuleName)) {
@@ -539,7 +539,7 @@ To resolve try the following:
     const searchQueue = [];
     const isNodeModulesDir = /node_modules$/g;
 
-    let dirPath = path.dirname(fromModule.path);
+    let dirPath = fp.dirname(fromModule.path);
 
     const fromModuleRoot = path.parse(fromModule.path).root;
     while (dirPath !== fromModuleRoot) {
@@ -548,9 +548,9 @@ To resolve try the following:
         continue;
       }
       searchQueue.push(
-        path.join(dirPath, 'node_modules', toModuleName)
+        fp.join(dirPath, 'node_modules', toModuleName)
       );
-      dirPath = path.dirname(dirPath);
+      dirPath = fp.dirname(dirPath);
     }
 
     if (this._extraNodeModules) {
@@ -558,7 +558,7 @@ To resolve try the following:
       const packageName = parts[0];
       if (this._extraNodeModules[packageName]) {
         parts[0] = this._extraNodeModules[packageName];
-        searchQueue.push(path.join.apply(path, parts));
+        searchQueue.push(fp.join.apply(path, parts));
       }
     }
 
@@ -599,8 +599,8 @@ To resolve try the following:
     const moduleCache = this._moduleCache._moduleCache;
 
     if (modulePath[0] === '.') {
-      modulePath = path.resolve(
-        path.resolve(fromModule.path),
+      modulePath = fp.resolve(
+        fp.resolve(fromModule.path),
         modulePath
       );
     }
@@ -622,7 +622,7 @@ To resolve try the following:
 }
 
 function resolutionHash(modulePath, depName) {
-  return `${path.resolve(modulePath)}:${depName}`;
+  return `${fp.resolve(modulePath)}:${depName}`;
 }
 
 function tryResolve(action, secondaryAction) {
@@ -650,10 +650,10 @@ function UnableToResolveError(fromModule, toModule, message) {
 util.inherits(UnableToResolveError, Error);
 
 function normalizePath(modulePath) {
-  if (path.sep === '/') {
-    modulePath = path.normalize(modulePath);
-  } else if (path.posix) {
-    modulePath = path.posix.normalize(modulePath);
+  if (fp.sep === '/') {
+    modulePath = fp.normalize(modulePath);
+  } else if (fp.posix) {
+    modulePath = fp.posix.normalize(modulePath);
   }
 
   return modulePath.replace(/\/$/, '');
