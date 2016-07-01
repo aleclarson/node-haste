@@ -12,7 +12,7 @@ module.exports = class AsyncTaskGroup {
   constructor() {
     this._runningTasks = new Set();
     this._resolve = null;
-    this.done = new Promise(resolve => this._resolve = resolve);
+    this.done = Promise.defer(resolve => this._resolve = resolve);
   }
 
   start(taskHandle) {

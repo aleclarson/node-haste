@@ -8,28 +8,26 @@
  */
 'use strict';
 
-const Cache = require('./Cache');
-const Fastfs = require('./fastfs');
-const FileWatcher = require('./FileWatcher');
-const Module = require('./Module');
-const ModuleCache = require('./ModuleCache');
-const Polyfill = require('./Polyfill');
-const crawl = require('./crawlers');
-const extractRequires = require('./lib/extractRequires');
-const getAssetDataFromName = require('./lib/getAssetDataFromName');
-const getInverseDependencies = require('./lib/getInverseDependencies');
-const getPlatformExtension = require('./lib/getPlatformExtension');
-const isAbsolutePath = require('absolute-path');
-const replacePatterns = require('./lib/replacePatterns');
-const path = require('./fastpath');
+const emptyFunction = require('emptyFunction');
 const util = require('util');
-const DependencyGraphHelpers = require('./DependencyGraph/DependencyGraphHelpers');
-const ResolutionRequest = require('./DependencyGraph/ResolutionRequest');
-const ResolutionResponse = require('./DependencyGraph/ResolutionResponse');
-const HasteMap = require('./DependencyGraph/HasteMap');
-const DeprecatedAssetMap = require('./DependencyGraph/DeprecatedAssetMap');
+const fs = require('io');
 
-const ERROR_BUILDING_DEP_GRAPH = 'DependencyGraphError';
+const path = require('./fastpath');
+const Cache = require('./Cache');
+const crawl = require('./crawlers');
+const Fastfs = require('./fastfs');
+const Module = require('./Module');
+const Polyfill = require('./Polyfill');
+const HasteMap = require('./HasteMap');
+const FileWatcher = require('./FileWatcher');
+const ModuleCache = require('./ModuleCache');
+const extractRequires = require('./utils/extractRequires');
+const replacePatterns = require('./utils/replacePatterns');
+const ResolutionRequest = require('./ResolutionRequest');
+const ResolutionResponse = require('./ResolutionResponse');
+const getAssetDataFromName = require('./utils/getAssetDataFromName');
+const getPlatformExtension = require('./utils/getPlatformExtension');
+const getInverseDependencies = require('./utils/getInverseDependencies');
 
 const defaultActivity = {
   startEvent: () => {},
@@ -38,50 +36,50 @@ const defaultActivity = {
 
 class DependencyGraph {
   constructor({
-    activity,
-    roots,
-    ignoreFilePath,
-    fileWatcher,
-    assetRoots_DEPRECATED,
+    lazyRoots,
+    projectRoots,
+    projectExts,
     assetExts,
+    activity = defaultActivity,
+    getBlacklist = emptyFunction,
+    fileWatcher,
     providesModuleNodeModules,
-    platforms,
-    preferNativePlatform,
+    platforms = [],
+    preferNativePlatform = false,
     cache,
-    extensions,
     mocksPattern,
     extractRequires,
     transformCode,
-    shouldThrowOnUnresolvedErrors = () => true,
+    shouldThrowOnUnresolvedErrors = emptyFunction.thatReturnsTrue,
     enableAssetMap,
     assetDependencies,
     moduleOptions,
     extraNodeModules,
   }) {
     this._opts = {
-      activity: activity || defaultActivity,
-      roots,
-      ignoreFilePath: ignoreFilePath || (() => {}),
+      lazyRoots,
+      projectRoots,
+      projectExts,
+      assetExts,
+      activity,
       fileWatcher,
-      assetRoots_DEPRECATED: assetRoots_DEPRECATED || [],
-      assetExts: assetExts || [],
       providesModuleNodeModules,
-      platforms: new Set(platforms || []),
-      preferNativePlatform: preferNativePlatform || false,
-      extensions: extensions || ['js', 'json'],
+      platforms: new Set(platforms),
+      preferNativePlatform,
+      cache,
       mocksPattern,
       extractRequires,
       transformCode,
       shouldThrowOnUnresolvedErrors,
       enableAssetMap: enableAssetMap || true,
+      assetDependencies,
       moduleOptions: moduleOptions || {
         cacheTransformResults: true,
       },
       extraNodeModules,
+      ignoreFilePath: getBlacklist() || emptyFunction.thatReturnsFalse,
     };
-    this._cache = cache;
-    this._assetDependencies = assetDependencies;
-    this._helpers = new DependencyGraphHelpers(this._opts);
+
     this.load();
   }
 
@@ -90,87 +88,87 @@ class DependencyGraph {
       return this._loading;
     }
 
-    const {activity} = this._opts;
-    const depGraphActivity = activity.startEvent('Building Dependency Graph');
-    const crawlActivity = activity.startEvent('Crawling File System');
-    const allRoots = this._opts.roots.concat(this._opts.assetRoots_DEPRECATED);
-    this._crawling = crawl(allRoots, {
-      ignore: this._opts.ignoreFilePath,
-      exts: this._opts.extensions.concat(this._opts.assetExts),
-      fileWatcher: this._opts.fileWatcher,
+    const {
+      projectRoots,
+      lazyRoots,
+      platforms,
+      projectExts,
+      ignoreFilePath,
+      fileWatcher,
+      activity,
+    } = this._opts;
+
+    const crawlActivity = activity.startEvent('crawl filesystem');
+
+    this._crawling = crawl(projectRoots, {
+      extensions: projectExts,
+      ignoreFilePath,
+      fileWatcher,
     });
-    this._crawling.then((files) => activity.endEvent(crawlActivity));
 
-    this._fastfs = new Fastfs(
-      'JavaScript',
-      this._opts.roots,
-      this._opts.fileWatcher,
-      {
-        ignore: this._opts.ignoreFilePath,
-        crawling: this._crawling,
-        activity: activity,
-      }
+    this._crawling.then(() =>
+      activity.endEvent(crawlActivity));
+
+    this._fastfs = new Fastfs('find .js files', {
+      roots: projectRoots,
+      lazyRoots,
+      fileWatcher,
+      activity,
+      ignoreFilePath,
+      crawling: this._crawling,
+    });
+
+    this._fastfs.on(
+      'change',
+      this._processFileChange.bind(this)
     );
-
-    this._fastfs.on('change', this._processFileChange.bind(this));
 
     this._moduleCache = new ModuleCache({
       fastfs: this._fastfs,
-      cache: this._cache,
+      cache: this._opts.cache,
       extractRequires: this._opts.extractRequires,
       transformCode: this._opts.transformCode,
-      depGraphHelpers: this._helpers,
       assetDependencies: this._assetDependencies,
       moduleOptions: this._opts.moduleOptions,
-    }, this._opts.platfomrs);
+    }, platforms);
 
     this._hasteMap = new HasteMap({
+      projectExts,
       fastfs: this._fastfs,
-      extensions: this._opts.extensions,
       moduleCache: this._moduleCache,
+      ignoreFilePath,
       preferNativePlatform: this._opts.preferNativePlatform,
-      helpers: this._helpers,
-      platforms: this._opts.platforms,
+      platforms,
     });
 
-    this._deprecatedAssetMap = new DeprecatedAssetMap({
-      fsCrawl: this._crawling,
-      roots: this._opts.assetRoots_DEPRECATED,
-      helpers: this._helpers,
-      fileWatcher: this._opts.fileWatcher,
-      ignoreFilePath: this._opts.ignoreFilePath,
-      assetExts: this._opts.assetExts,
-      activity: this._opts.activity,
-      enabled: this._opts.enableAssetMap,
-      platforms: this._opts.platforms,
-    });
+    return this._loading = this._fastfs.build().then(() => {
+      const hasteActivity = activity.startEvent('find haste modules');
+      return this._hasteMap.build().then(hasteModules => {
+        const hasteModuleNames = Object.keys(hasteModules);
 
-    this._loading = Promise.all([
-      this._fastfs.build()
-        .then(() => {
-          const hasteActivity = activity.startEvent('Building Haste Map');
-          return this._hasteMap.build().then(map => {
-            activity.endEvent(hasteActivity);
-            return map;
-          });
-        }),
-      this._deprecatedAssetMap.build(),
-    ]).then(
-      response => {
-        activity.endEvent(depGraphActivity);
-        return response[0]; // Return the haste map
-      },
-      err => {
-        const error = new Error(
-          `Failed to build DependencyGraph: ${err.message}`
+        const json = {};
+        hasteModuleNames.forEach(moduleName => {
+          const map = hasteModules[moduleName];
+          const mod = map.generic || Object.keys(map)[0];
+          if (mod && mod.path) {
+            json[moduleName] = path.relative(lotus.path, mod.path);
+          }
+        });
+
+        fs.sync.write(
+          lotus.path + '/.ReactNativeHasteMap.json',
+          JSON.stringify(json, null, 2)
         );
-        error.type = ERROR_BUILDING_DEP_GRAPH;
-        error.stack = err.stack;
-        throw error;
-      }
-    );
 
-    return this._loading;
+        log.moat(1);
+        log.white('Haste modules: ');
+        log.cyan(hasteModuleNames.length);
+        log.moat(1);
+
+        activity.endEvent(hasteActivity);
+        return hasteModules;
+      });
+    });
   }
 
   /**
@@ -204,6 +202,7 @@ class DependencyGraph {
     transformOptions,
     onProgress,
     recursive = true,
+    ignoreFilePath = emptyFunction.thatReturnsFalse,
   }) {
     return this.load().then(() => {
       platform = this._getRequestPlatform(entryPath, platform);
@@ -212,12 +211,13 @@ class DependencyGraph {
         platform,
         platforms: this._opts.platforms,
         preferNativePlatform: this._opts.preferNativePlatform,
+        projectExts: this._opts.projectExts,
+        assetExts: this._opts.assetExts,
         entryPath: absPath,
-        deprecatedAssetMap: this._deprecatedAssetMap,
-        hasteMap: this._hasteMap,
-        helpers: this._helpers,
-        moduleCache: this._moduleCache,
         fastfs: this._fastfs,
+        hasteMap: this._hasteMap,
+        moduleCache: this._moduleCache,
+        ignoreFilePath: (filePath) => ignoreFilePath(filePath) || this._opts.ignoreFilePath(filePath),
         shouldThrowOnUnresolvedErrors: this._opts.shouldThrowOnUnresolvedErrors,
         extraNodeModules: this._opts.extraNodeModules,
       });
@@ -238,6 +238,18 @@ class DependencyGraph {
     return this.load().then(() => this._fastfs.matchFilesByPattern(pattern));
   }
 
+  _mergeArrays(arrays) {
+    const result = [];
+    arrays.forEach((array) => {
+      if (!Array.isArray(array)) {
+        return;
+      }
+      array.forEach((item) =>
+        result.push(item));
+    });
+    return result;
+  }
+
   _getRequestPlatform(entryPath, platform) {
     if (platform == null) {
       platform = getPlatformExtension(entryPath, this._opts.platforms);
@@ -248,12 +260,12 @@ class DependencyGraph {
   }
 
   _getAbsolutePath(filePath) {
-    if (isAbsolutePath(filePath)) {
+    if (path.isAbsolute(filePath)) {
       return path.resolve(filePath);
     }
 
-    for (let i = 0; i < this._opts.roots.length; i++) {
-      const root = this._opts.roots[i];
+    for (let i = 0; i < this._opts.projectRoots.length; i++) {
+      const root = this._opts.projectRoots[i];
       const potentialAbsPath = path.join(root, filePath);
       if (this._fastfs.fileExists(potentialAbsPath)) {
         return path.resolve(potentialAbsPath);
@@ -263,15 +275,13 @@ class DependencyGraph {
     throw new NotFoundError(
       'Cannot find entry file %s in any of the roots: %j',
       filePath,
-      this._opts.roots
+      this._opts.projectRoots
     );
   }
 
   _processFileChange(type, filePath, root, fstat) {
     const absPath = path.join(root, filePath);
-    if (fstat && fstat.isDirectory() ||
-        this._opts.ignoreFilePath(absPath) ||
-        this._helpers.isNodeModulesDir(absPath)) {
+    if (!this._opts.ignoreFilePath(absPath)) {
       return;
     }
 
@@ -282,7 +292,7 @@ class DependencyGraph {
     // After we process a file change we record any errors which will also be
     // reported via the next request. On the next file change, we'll see that
     // we are in an error state and we should decide to do a full rebuild.
-    const resolve = () => {
+    this._loading = this._loading.always(() => {
       if (this._hasteMapError) {
         console.warn(
           'Rebuilding haste map to recover from error:\n' +
@@ -294,30 +304,16 @@ class DependencyGraph {
         this._loading = this._hasteMap.build();
       } else {
         this._loading = this._hasteMap.processFileChange(type, absPath);
-        this._loading.catch((e) => this._hasteMapError = e);
+        this._loading.fail((e) => this._hasteMapError = e);
       }
       return this._loading;
-    };
-    this._loading = this._loading.then(resolve, resolve);
+    });
   }
 
   createPolyfill(options) {
     return this._moduleCache.createPolyfill(options);
   }
 }
-
-Object.assign(DependencyGraph, {
-  Cache,
-  Fastfs,
-  FileWatcher,
-  Module,
-  Polyfill,
-  extractRequires,
-  getAssetDataFromName,
-  getPlatformExtension,
-  replacePatterns,
-  getInverseDependencies,
-});
 
 function NotFoundError() {
   Error.call(this);
@@ -329,4 +325,16 @@ function NotFoundError() {
 }
 util.inherits(NotFoundError, Error);
 
-module.exports = DependencyGraph;
+Object.assign(exports, {
+  DependencyGraph,
+  Cache,
+  Fastfs,
+  FileWatcher,
+  Module,
+  Polyfill,
+  extractRequires,
+  getAssetDataFromName,
+  getPlatformExtension,
+  replacePatterns,
+  getInverseDependencies,
+});

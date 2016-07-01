@@ -13,7 +13,6 @@ class ModuleCache {
     cache,
     extractRequires,
     transformCode,
-    depGraphHelpers,
     assetDependencies,
     moduleOptions,
   }, platforms) {
@@ -23,7 +22,6 @@ class ModuleCache {
     this._cache = cache;
     this._extractRequires = extractRequires;
     this._transformCode = transformCode;
-    this._depGraphHelpers = depGraphHelpers;
     this._platforms = platforms;
     this._assetDependencies = assetDependencies;
     this._moduleOptions = moduleOptions;
@@ -32,20 +30,26 @@ class ModuleCache {
     fastfs.on('change', this._processFileChange.bind(this));
   }
 
+  getCachedModule(filePath) {
+    return this._moduleCache[
+      filePath.toLowerCase()
+    ];
+  }
+
   getModule(filePath) {
-    if (!this._moduleCache[filePath]) {
-      this._moduleCache[filePath] = new Module({
+    const hash = filePath.toLowerCase();
+    if (!this._moduleCache[hash]) {
+      this._moduleCache[hash] = new Module({
         file: filePath,
         fastfs: this._fastfs,
         moduleCache: this,
         cache: this._cache,
         extractor: this._extractRequires,
         transformCode: this._transformCode,
-        depGraphHelpers: this._depGraphHelpers,
         options: this._moduleOptions,
       });
     }
-    return this._moduleCache[filePath];
+    return this._moduleCache[hash];
   }
 
   getAllModules() {
@@ -53,8 +57,9 @@ class ModuleCache {
   }
 
   getAssetModule(filePath) {
-    if (!this._moduleCache[filePath]) {
-      this._moduleCache[filePath] = new AssetModule({
+    const hash = filePath.toLowerCase();
+    if (!this._moduleCache[hash]) {
+      this._moduleCache[hash] = new AssetModule({
         file: filePath,
         fastfs: this._fastfs,
         moduleCache: this,
@@ -62,18 +67,20 @@ class ModuleCache {
         dependencies: this._assetDependencies,
       }, this._platforms);
     }
-    return this._moduleCache[filePath];
+    return this._moduleCache[hash];
   }
 
   getPackage(filePath) {
-    if (!this._packageCache[filePath]) {
-      this._packageCache[filePath] = new Package({
+    const hash = filePath.toLowerCase();
+    if (!this._packageCache[hash]) {
+      this._packageCache[hash] = new Package({
         file: filePath,
         fastfs: this._fastfs,
+        moduleCache: this,
         cache: this._cache,
       });
     }
-    return this._packageCache[filePath];
+    return this._packageCache[hash];
   }
 
   getPackageForModule(module) {
@@ -106,16 +113,26 @@ class ModuleCache {
     });
   }
 
+  removeModule(filePath) {
+    delete this._moduleCache[
+      filePath.toLowerCase()
+    ];
+  }
+
+  removePackage(filePath) {
+    delete this._packageCache[
+      filePath.toLowerCase()
+    ];
+  }
+
   _processFileChange(type, filePath, root) {
     const absPath = path.join(root, filePath);
 
     if (this._moduleCache[absPath]) {
-      this._moduleCache[absPath].invalidate();
-      delete this._moduleCache[absPath];
+      this._moduleCache[absPath]._processFileChange(type);
     }
     if (this._packageCache[absPath]) {
-      this._packageCache[absPath].invalidate();
-      delete this._packageCache[absPath];
+      this._packageCache[absPath]._processFileChange(type);
     }
   }
 }

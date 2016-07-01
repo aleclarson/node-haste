@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('path');
+const lotus = require('lotus-require');
 const Module = require('./Module');
 
 class Polyfill extends Module {
@@ -10,11 +12,16 @@ class Polyfill extends Module {
   }
 
   isHaste() {
-    return Promise.resolve(false);
+    return Promise(false);
   }
 
   getName() {
-    return Promise.resolve(this._id);
+    return Promise.try(() => {
+      if (path.isAbsolute(this._id)) {
+        return lotus.relative(this._id);
+      }
+      return this._id;
+    });
   }
 
   getPackage() {
@@ -22,7 +29,7 @@ class Polyfill extends Module {
   }
 
   getDependencies() {
-    return Promise.resolve(this._dependencies);
+    return Promise(this._dependencies);
   }
 
   isJSON() {

@@ -1,33 +1,45 @@
 'use strict';
 
-const isAbsolutePath = require('absolute-path');
 const path = require('./fastpath');
 
 class Package {
 
-  constructor({ file, fastfs, cache }) {
+  constructor({ file, fastfs, moduleCache, cache }) {
     this.path = file;
     this.root = path.dirname(this.path);
     this._fastfs = fastfs;
     this.type = 'Package';
+    this._moduleCache = moduleCache;
     this._cache = cache;
   }
 
   getMain() {
     return this.read().then(json => {
-      var replacements = getReplacements(json);
+      const replacements = getReplacements(json);
+
+      let main = json.main;
       if (typeof replacements === 'string') {
-        return path.join(this.root, replacements);
+        main = replacements;
       }
 
-      let main = json.main || 'index';
+      let ext;
+      if (main) {
+        ext = path.extname(main) || '.js';
+        main = main.replace(/^\.\//, ''); // Remove leading dot-slash
+        main = main.replace(/(\.js|\.json)$/, ''); // Remove trailing extension
+      } else {
+        ext = '.js';
+        main = 'index';
+      }
 
       if (replacements && typeof replacements === 'object') {
         main = replacements[main] ||
-          replacements[main + '.js'] ||
-          replacements[main + '.json'] ||
-          replacements[main.replace(/(\.js|\.json)$/, '')] ||
+          replacements[main + ext] ||
           main;
+      }
+
+      if (ext) {
+        main += ext;
       }
 
       return path.join(this.root, main);
@@ -46,37 +58,69 @@ class Package {
     );
   }
 
-  invalidate() {
+  _processFileChange() {
     this._cache.invalidate(this.path);
+    this._moduleCache.removePackage(this.path);
   }
 
-  redirectRequire(name) {
-    return this.read().then(json => {
-      var replacements = getReplacements(json);
+  redirectRequire(name, resolveFilePath) {
 
+    if (name[0] === '.') {
+      throw new Error('Relative paths are not supported!');
+    }
+
+    return this.read().then(json => {
+      let result;
+
+      const replacements = getReplacements(json);
       if (!replacements || typeof replacements !== 'object') {
         return name;
       }
 
-      if (name[0] !== '/') {
-        return replacements[name] || name;
+      // Module names can be redirected as is.
+      if (name[0] !== path.sep) {
+        result = replacements[name];
+        if (result !== undefined) {
+          return result;
+        }
+        return name;
       }
 
-      if (!isAbsolutePath(name)) {
-        throw new Error(`Expected ${name} to be absolute path`);
+      // Returns undefined if no replacement exists.
+      const redirect = (filePath) => {
+        filePath = replacements[filePath];
+
+        // Support disabling modules.
+        if (filePath === false) {
+          return null;
+        }
+
+        // Return an absolute path!
+        if (typeof filePath === 'string') {
+          return path.join(this.root, filePath);
+        }
       }
 
+      // Redirect absolute paths, but first convert it to a
+      // path that is relative to the 'package.json' file!
       const relPath = './' + path.relative(this.root, name);
-      const redirect = replacements[relPath] ||
-              replacements[relPath + '.js'] ||
-              replacements[relPath + '.json'];
-      if (redirect) {
-        return path.join(
-          this.root,
-          redirect
-        );
+
+      // Try resolving as is.
+      result = redirect(relPath);
+      if (result !== undefined) {
+        return result;
       }
 
+      // This hook can be used to try to resolve
+      // a relative path using different extensions.
+      if (typeof resolveFilePath === 'function') {
+        result = resolveFilePath(relPath, redirect);
+        if (result !== undefined) {
+          return result;
+        }
+      }
+
+      // No replacement found.
       return name;
     });
   }

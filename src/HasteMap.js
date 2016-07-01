@@ -7,8 +7,12 @@
  * of patent rights can be found in the PATENTS file in the same directory.
  */
 'use strict';
-const path = require('../fastpath');
-const getPlatformExtension = require('../lib/getPlatformExtension');
+
+const Promise = require('Promise');
+
+const path = require('./fastpath');
+const matchExtensions = require('./utils/matchExtensions');
+const getPlatformExtension = require('./utils/getPlatformExtension');
 
 const GENERIC_PLATFORM = 'generic';
 const NATIVE_PLATFORM = 'native';
@@ -16,39 +20,35 @@ const PACKAGE_JSON = path.sep + 'package.json';
 
 class HasteMap {
   constructor({
-    extensions,
+    projectExts,
     fastfs,
     moduleCache,
+    ignoreFilePath,
     preferNativePlatform,
-    helpers,
     platforms,
   }) {
-    this._extensions = extensions;
+    this._projectExts = projectExts;
     this._fastfs = fastfs;
     this._moduleCache = moduleCache;
+    this._ignoreFilePath = ignoreFilePath;
     this._preferNativePlatform = preferNativePlatform;
-    this._helpers = helpers;
     this._platforms = platforms;
   }
 
   build() {
     this._map = Object.create(null);
-    const promises = [];
-    this._fastfs.getAllFiles().forEach(filePath => {
-      if (!this._helpers.isNodeModulesDir(filePath)) {
-        if (this._extensions.indexOf(path.extname(filePath).substr(1)) !== -1) {
-          promises.push(this._processHasteModule(filePath));
-        }
-        if (filePath.endsWith(PACKAGE_JSON)) {
-          promises.push(this._processHastePackage(filePath));
-        }
+    return Promise.map(this._fastfs.getAllFiles(), (filePath) => {
+      if (this._ignoreFilePath(filePath)) { return }
+      if (matchExtensions(this._projectExts, filePath)) {
+        return this._processHasteModule(filePath);
+      } else if (filePath.endsWith(PACKAGE_JSON)) {
+        return this._processHastePackage(filePath);
       }
-    });
-    return Promise.all(promises).then(() => this._map);
+    }).then(() => this._map);
   }
 
   processFileChange(type, absPath) {
-    return Promise.resolve().then(() => {
+    return Promise.try(() => {
       /*eslint no-labels: 0 */
       if (type === 'delete' || type === 'change') {
         loop: for (const name in this._map) {
@@ -67,7 +67,7 @@ class HasteMap {
         }
       }
 
-      if (this._extensions.indexOf(this._helpers.extname(absPath)) !== -1) {
+      if (matchExtensions(this._projectExts, absPath)) {
         if (path.basename(absPath) === 'package.json') {
           return this._processHastePackage(absPath);
         } else {
@@ -108,11 +108,12 @@ class HasteMap {
 
   _processHastePackage(file) {
     file = path.resolve(file);
-    const p = this._moduleCache.getPackage(file);
-    return p.isHaste()
-      .then(isHaste => isHaste && p.getName()
-            .then(name => this._updateHasteMap(name, p)))
-      .catch(e => {
+    const pkg = this._moduleCache.getPackage(file);
+    return pkg.isHaste()
+      .then(isHaste =>
+        isHaste && pkg.getName().then(name =>
+          this._updateHasteMap(name, pkg)))
+      .fail(e => {
         if (e instanceof SyntaxError) {
           // Malformed package.json.
           return;
@@ -131,6 +132,13 @@ class HasteMap {
     const existingModule = moduleMap[modulePlatform];
 
     if (existingModule && existingModule.path !== mod.path) {
+      // Force modules to override their packages.
+      if (existingModule.type === 'Package') {
+        if (mod.type === 'Module') {
+          moduleMap[modulePlatform] = mod;
+          return;
+        }
+      }
       throw new Error(
         `@providesModule naming collision:\n` +
         `  Duplicate module name: ${name}\n` +

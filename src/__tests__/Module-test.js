@@ -23,7 +23,6 @@ jest
 const Fastfs = require('../fastfs');
 const Module = require('../Module');
 const ModuleCache = require('../ModuleCache');
-const DependencyGraphHelpers = require('../DependencyGraph/DependencyGraphHelpers');
 const fs = require('graceful-fs');
 
 const packageJson =
@@ -48,7 +47,7 @@ function mockIndexFile(indexJs) {
 describe('Module', () => {
   const fileWatcher = {
     on: () =>  this,
-    isWatchman: () => Promise.resolve(false),
+    isWatchman: () => Promise(false),
   };
   const fileName = '/root/index.js';
 
@@ -71,7 +70,6 @@ describe('Module', () => {
       cache,
       fastfs,
       file: options && options.file || fileName,
-      depGraphHelpers: new DependencyGraphHelpers(),
       moduleCache: new ModuleCache({fastfs, cache}),
     });
 
@@ -85,7 +83,7 @@ describe('Module', () => {
       'test',
       ['/root'],
       fileWatcher,
-      {crawling: Promise.resolve([fileName, '/root/package.json']), ignore: []},
+      {crawling: Promise([fileName, '/root/package.json']), ignore: []},
     );
 
     fastfs.build().then(done);
@@ -119,14 +117,14 @@ describe('Module', () => {
 
       pit('does not transform the file in order to access the name', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).getName()
           .then(() => expect(transformCode).not.toBeCalled());
       });
 
       pit('does not transform the file in order to access the haste status', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).isHaste()
           .then(() => expect(transformCode).not.toBeCalled());
       });
@@ -147,14 +145,14 @@ describe('Module', () => {
 
       pit('does not transform the file in order to access the name', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).getName()
           .then(() => expect(transformCode).not.toBeCalled());
       });
 
       pit('does not transform the file in order to access the haste status', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).isHaste()
           .then(() => expect(transformCode).not.toBeCalled());
       });
@@ -175,14 +173,14 @@ describe('Module', () => {
 
       pit('does not transform the file in order to access the name', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).getName()
           .then(() => expect(transformCode).not.toBeCalled());
       });
 
       pit('does not transform the file in order to access the haste status', () => {
         const transformCode =
-          jest.genMockFn().mockReturnValue(Promise.resolve());
+          jest.genMockFn().mockReturnValue(Promise());
         return createModule({transformCode}).isHaste()
           .then(() => expect(transformCode).not.toBeCalled());
       });
@@ -268,7 +266,7 @@ describe('Module', () => {
     beforeEach(function() {
       transformCode = jest.genMockFn();
       mockIndexFile(fileContents);
-      transformCode.mockReturnValue(Promise.resolve({code: ''}));
+      transformCode.mockReturnValue(Promise({code: ''}));
     });
 
     pit('passes the module and file contents to the transform function when reading', () => {
@@ -337,7 +335,7 @@ describe('Module', () => {
     });
 
     pit('uses the code that `transformCode` resolves to to extract dependencies', () => {
-      transformCode.mockReturnValue(Promise.resolve({code: exampleCode}));
+      transformCode.mockReturnValue(Promise({code: exampleCode}));
       const module = createModule({transformCode});
 
       return module.getDependencies().then(dependencies => {
@@ -347,7 +345,7 @@ describe('Module', () => {
 
     pit('uses dependencies that `transformCode` resolves to, instead of extracting them', () => {
       const mockedDependencies = ['foo', 'bar'];
-      transformCode.mockReturnValue(Promise.resolve({
+      transformCode.mockReturnValue(Promise({
         code: exampleCode,
         dependencies: mockedDependencies,
       }));
@@ -366,7 +364,7 @@ describe('Module', () => {
         map: {version: 3},
         subObject: {foo: 'bar'},
       };
-      transformCode.mockReturnValue(Promise.resolve(mockedResult));
+      transformCode.mockReturnValue(Promise(mockedResult));
       const module = createModule({transformCode});
 
       return module.read().then((result) => {
@@ -383,7 +381,7 @@ describe('Module', () => {
         map: {version: 3},
         subObject: {foo: 'bar'},
       };
-      transformCode.mockReturnValue(Promise.resolve(mockedResult));
+      transformCode.mockReturnValue(Promise(mockedResult));
       const module = createModule({transformCode, options: {
         cacheTransformResults: false,
       }});
@@ -404,7 +402,7 @@ describe('Module', () => {
         map: {version: 3},
         subObject: {foo: 'bar'},
       };
-      transformCode.mockReturnValue(Promise.resolve(mockedResult));
+      transformCode.mockReturnValue(Promise(mockedResult));
       const module = createModule({transformCode, options: undefined});
 
       return module.read().then((result) => {
@@ -413,7 +411,7 @@ describe('Module', () => {
     });
 
     pit('exposes the transformed code rather than the raw file contents', () => {
-      transformCode.mockReturnValue(Promise.resolve({code: exampleCode}));
+      transformCode.mockReturnValue(Promise({code: exampleCode}));
       const module = createModule({transformCode});
       return Promise.all([module.read(), module.getCode()])
         .then(([data, code]) => {
@@ -430,7 +428,7 @@ describe('Module', () => {
 
     pit('exposes a source map returned by the transform', () => {
       const map = {version: 3};
-      transformCode.mockReturnValue(Promise.resolve({map, code: exampleCode}));
+      transformCode.mockReturnValue(Promise({map, code: exampleCode}));
       const module = createModule({transformCode});
       return Promise.all([module.read(), module.getMap()])
         .then(([data, sourceMap]) => {

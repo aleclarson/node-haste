@@ -49,7 +49,7 @@ describe('getInverseDependencies', () => {
 function createModule(name, dependencies) {
   return {
     hash: () => name,
-    getName: () => Promise.resolve(name),
-    getDependencies: () => Promise.resolve(dependencies),
+    getName: () => Promise(name),
+    getDependencies: () => Promise(dependencies),
   };
 }

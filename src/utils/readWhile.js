@@ -13,7 +13,7 @@ const fs = require('graceful-fs');
 module.exports = readWhile;
 
 function readWhile(filePath, predicate) {
-  return new Promise((resolve, reject) => {
+  return Promise.defer((resolve, reject) => {
     fs.open(filePath, 'r', (openError, fd) => {
       if (openError) {
         reject(openError);

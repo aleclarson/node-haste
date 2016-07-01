@@ -47,7 +47,7 @@ describe('DependencyGraph', function() {
       on: function() {
         return this;
       },
-      isWatchman: () => Promise.resolve(false),
+      isWatchman: () => Promise(false),
     };
 
     const Cache = jest.genMockFn().mockImplementation(function() {
@@ -1268,7 +1268,7 @@ describe('DependencyGraph', function() {
         roots: [root],
       });
 
-      return dgraph.load().catch(err => {
+      return dgraph.load().fail(err => {
         expect(err.message).toEqual(
           `Failed to build DependencyGraph: @providesModule naming collision:\n` +
           `  Duplicate module name: index\n` +
@@ -4691,7 +4691,7 @@ describe('DependencyGraph', function() {
           callbacks.push(callback);
           return this;
         },
-        isWatchman: () => Promise.resolve(false),
+        isWatchman: () => Promise(false),
       };
     });
 
@@ -6058,7 +6058,7 @@ describe('DependencyGraph', function() {
 
   function defer(value) {
     let resolve;
-    const promise = new Promise(r => { resolve = r; });
+    const promise = Promise.defer(r => { resolve = r; });
     return {promise, resolve: () => resolve(value)};
   }
 });

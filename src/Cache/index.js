@@ -8,12 +8,13 @@
  */
 'use strict';
 
-const denodeify = require('denodeify');
 const crypto = require('crypto');
-const fs = require('graceful-fs');
-const isAbsolutePath = require('absolute-path');
+const fp = require('../fastpath');
+const fs = require('io');
+const os = require('os');
+const Promise = require('Promise');
+
 const path = require('../fastpath');
-const tmpDir = require('os').tmpDir();
 
 function getObjectValues(object) {
   return Object.keys(object).map(key => object[key]);
@@ -31,7 +32,7 @@ class Cache {
   constructor({
     resetCache,
     cacheKey,
-    cacheDirectory = tmpDir,
+    cacheDirectory = os.tmpDir(),
   }) {
     this._cacheFilePath = Cache.getCacheFilePath(cacheDirectory, cacheKey);
     if (!resetCache) {
@@ -40,7 +41,10 @@ class Cache {
       this._data = Object.create(null);
     }
 
-    this._persistEventually = debounce(this._persistCache.bind(this), 2000);
+    this._persistEventually = debounce(
+      this._persistCache.bind(this),
+      2000,
+    );
   }
 
   static getCacheFilePath(tmpdir, ...args) {
@@ -50,7 +54,7 @@ class Cache {
   }
 
   get(filepath, field, loaderCb) {
-    if (!isAbsolutePath(filepath)) {
+    if (!path.isAbsolute(filepath)) {
       throw new Error('Use absolute paths');
     }
 
@@ -90,7 +94,7 @@ class Cache {
     record.data[field] = loaderPromise
       .then(data => Promise.all([
         data,
-        denodeify(fs.stat)(filepath),
+        fs.async.stats(filepath),
       ]))
       .then(([data, stat]) => {
         this._persistEventually();
@@ -117,51 +121,57 @@ class Cache {
     const data = this._data;
     const cacheFilepath = this._cacheFilePath;
 
-    const allPromises = getObjectValues(data)
-      .map(record => {
-        const fieldNames = Object.keys(record.data);
-        const fieldValues = getObjectValues(record.data);
+    this._persisting = Promise.map(getObjectValues(data), (record) => {
+      const fieldNames = Object.keys(record.data);
+      const fieldValues = getObjectValues(record.data);
 
-        return Promise
-          .all(fieldValues)
-          .then(ref => {
-            const ret = Object.create(null);
-            ret.metadata = record.metadata;
-            ret.data = Object.create(null);
-            fieldNames.forEach((field, index) =>
-              ret.data[field] = ref[index]
-            );
+      return Promise
+      .all(fieldValues)
+      .then(ref => {
+        const ret = Object.create(null);
+        ret.metadata = record.metadata;
+        ret.data = Object.create(null);
+        fieldNames.forEach((field, index) =>
+          ret.data[field] = ref[index]
+        );
 
-            return ret;
-          });
-      }
-    );
-
-    this._persisting = Promise.all(allPromises)
-      .then(values => {
-        const json = Object.create(null);
-        Object.keys(data).forEach((key, i) => {
-          // make sure the key wasn't added nor removed after we started
-          // persisting the cache
-          const value = values[i];
-          if (!value) {
-            return;
-          }
-
-          json[key] = Object.create(null);
-          json[key].metadata = data[key].metadata;
-          json[key].data = value.data;
-        });
-        return denodeify(fs.writeFile)(cacheFilepath, JSON.stringify(json));
-      })
-      .catch(e => console.error(
-        '[node-haste] Encountered an error while persisting cache:\n%s',
-        e.stack.split('\n').map(line => '> ' + line).join('\n')
-      ))
-      .then(() => {
-        this._persisting = null;
-        return true;
+        return ret;
       });
+    })
+    .then(values => {
+      const json = Object.create(null);
+
+      Object.keys(data).forEach((key, i) => {
+        // make sure the key wasn't added nor removed after we started
+        // persisting the cache
+        const value = values[i];
+        if (!value) {
+          return;
+        }
+
+        json[key] = Object.create(null);
+        json[key].metadata = data[key].metadata;
+        json[key].data = value.data;
+      });
+
+      return fs.async.write(
+        cacheFilepath,
+        JSON.stringify(json)
+      )
+
+      .fail(error => {
+        log.moat(1);
+        log.red('CacheError: ');
+        log.white('Failed to persist cache!');
+        log.moat(0);
+        log.gray.dim(e.stack);
+        log.moat(1);
+      })
+
+      .always(() => {
+        this._persisting = null;
+      });
+    });
 
     return this._persisting;
   }
@@ -172,11 +182,11 @@ class Cache {
 
     // Filter outdated cache and convert to promises.
     Object.keys(cacheOnDisk).forEach(key => {
-      if (!fs.existsSync(key)) {
+      if (!fs.sync.isFile(key)) {
         return;
       }
       var record = cacheOnDisk[key];
-      var stat = fs.statSync(key);
+      var stat = fs.sync.stats(key);
       if (stat.mtime.getTime() === record.metadata.mtime) {
         ret[key] = Object.create(null);
         ret[key].metadata = Object.create(null);
@@ -184,7 +194,7 @@ class Cache {
         ret[key].metadata.mtime = record.metadata.mtime;
 
         Object.keys(record.data).forEach(field => {
-          ret[key].data[field] = Promise.resolve(record.data[field]);
+          ret[key].data[field] = Promise(record.data[field]);
         });
       }
     });
@@ -194,17 +204,17 @@ class Cache {
 }
 
 function loadCacheSync(cachePath) {
-  if (!fs.existsSync(cachePath)) {
+  if (!fs.sync.exists(cachePath)) {
     return Object.create(null);
   }
 
   try {
-    return JSON.parse(fs.readFileSync(cachePath));
+    return JSON.parse(fs.sync.read(cachePath));
   } catch (e) {
     if (e instanceof SyntaxError) {
       console.warn('Unable to parse cache file. Will clear and continue.');
       try {
-        fs.unlinkSync(cachePath);
+        fs.sync.remove(cachePath);
       } catch (err) {
         // Someone else might've deleted it.
       }

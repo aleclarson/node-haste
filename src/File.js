@@ -8,32 +8,33 @@
  */
 'use strict';
 
-const denodeify = require('denodeify');
-const fs = require('graceful-fs');
-const path = require('./fastpath');
-const readWhile = require('./lib/readWhile');
+const fs = require('io');
 
-const readFile = denodeify(fs.readFile);
-const stat = denodeify(fs.stat);
+const readWhile = require('./utils/readWhile');
+const path = require('./fastpath');
+
+const NOT_FOUND_IN_ROOTS = 'NotFoundInRootsError';
 
 class File {
   constructor(filePath, isDir) {
     this.path = filePath;
-    this.isDir = isDir;
+    this.isDir = Boolean(isDir);
+    this.isLazy = false; // Lazy directories load files on-demand.
     this.children = this.isDir ? Object.create(null) : null;
   }
 
   read() {
     if (!this._read) {
-      this._read = readFile(this.path, 'utf8');
+      this._read = fs.async.read(this.path);
     }
+
     return this._read;
   }
 
   readWhile(predicate) {
     return readWhile(this.path, predicate).then(({result, completed}) => {
       if (completed && !this._read) {
-        this._read = Promise.resolve(result);
+        this._read = Promise(result);
       }
       return result;
     });
@@ -41,14 +42,25 @@ class File {
 
   stat() {
     if (!this._stat) {
-      this._stat = stat(this.path);
+      this._stat = fs.async.stats(this.path);
     }
 
     return this._stat;
   }
 
+  remove() {
+    if (!this.parent) {
+      throw new Error(`No parent to delete ${this.path} from`);
+    }
+
+    delete this.parent.children[path.basename(this.path)];
+  }
+
   addChild(file, fileMap) {
     const parts = file.path.substr(this.path.length + 1).split(path.sep);
+    if (parts.length === 0) {
+      return;
+    }
     if (parts.length === 1) {
       this.children[parts[0]] = file;
       file.parent = this;
@@ -64,6 +76,12 @@ class File {
   }
 
   getFileFromPath(filePath) {
+    return this.isLazy ?
+      this._lazyFileFromPath(filePath) :
+      this._getFileFromPath(filePath);
+  }
+
+  _getFileFromPath(filePath) {
     const parts = path.relative(this.path, filePath).split(path.sep);
 
     /*eslint consistent-this:0*/
@@ -85,15 +103,41 @@ class File {
     return file;
   }
 
-  ext() {
-    return path.extname(this.path).substr(1);
+  _lazyFileFromPath(filePath) {
+    return this._getFileFromPath(filePath) ||
+      this._createFileFromPath(filePath);
   }
 
-  remove() {
-    if (!this.parent) {
-      throw new Error(`No parent to delete ${this.path} from`);
-    }
+  _createFileFromPath(filePath) {
+    var file = this;
+    const parts = path.relative(this.path, filePath).split(path.sep);
+    parts.forEach((part, i) => {
+      const newPath = file.path + "/" + part;
+      var newFile = this._getFileFromPath(newPath);
+      if (newFile == null) {
+        let isDir = i < parts.length - 1;
+        let isValid = isDir ? fs.sync.isDir : fs.sync.isFile;
+        if (!isValid(newPath)) {
+          let fileType = isDir ? 'directory' : 'file';
+          let error = Error('"' + newPath + '" is not a ' + fileType + ' that exists.');
+          error.type = NOT_FOUND_IN_ROOTS;
+          throw error;
+        }
+        newFile = new File(newPath, isDir);
+        file.addChild(newFile);
 
-    delete this.parent.children[path.basename(this.path)];
+        if (isDir) {
+          let pkgJsonPath = newPath + '/package.json';
+          if (fs.sync.isFile(pkgJsonPath)) {
+            let pkgJson = new File(pkgJsonPath, false);
+            newFile.addChild(pkgJson);
+          }
+        }
+      }
+      file = newFile;
+    });
+    return file;
   }
 }
+
+module.exports = File;

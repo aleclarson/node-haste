@@ -9,7 +9,7 @@
 'use strict';
 
 const EventEmitter  = require('events').EventEmitter;
-const denodeify = require('denodeify');
+const Promise = require('Promise');
 const sane = require('sane');
 const execSync = require('child_process').execSync;
 
@@ -38,11 +38,10 @@ class FileWatcher extends EventEmitter {
     super();
     this._watcherByRoot = Object.create(null);
 
-    const watcherPromises = rootConfigs.map((rootConfig) => {
+    this._loading = Promise.map(rootConfigs, (rootConfig) => {
       return this._createWatcher(rootConfig);
-    });
-
-    this._loading = Promise.all(watcherPromises).then(watchers => {
+    })
+    .then(watchers => {
       watchers.forEach((watcher, i) => {
         this._watcherByRoot[rootConfigs[i].dir] = watcher;
         watcher.on(
@@ -64,14 +63,14 @@ class FileWatcher extends EventEmitter {
   }
 
   isWatchman() {
-    return Promise.resolve(FileWatcher.canUseWatchman());
+    return Promise(FileWatcher.canUseWatchman());
   }
 
   end() {
     inited = false;
     return this._loading.then(
       (watchers) => watchers.map(
-        watcher => denodeify(watcher.close).call(watcher)
+        watcher => Promise.ify(watcher.close).call(watcher)
       )
     );
   }
@@ -82,11 +81,10 @@ class FileWatcher extends EventEmitter {
       dot: false,
     });
 
-    return new Promise((resolve, reject) => {
-      const rejectTimeout = setTimeout(
-        () => reject(new Error(timeoutMessage(WatcherClass))),
-        MAX_WAIT_TIME
-      );
+    return Promise.defer((resolve, reject) => {
+      const rejectTimeout = setTimeout(() => {
+        reject(new Error(timeoutMessage(WatcherClass)));
+      }, MAX_WAIT_TIME);
 
       watcher.once('ready', () => {
         clearTimeout(rejectTimeout);
@@ -97,8 +95,8 @@ class FileWatcher extends EventEmitter {
 
   static createDummyWatcher() {
     return Object.assign(new EventEmitter(), {
-      isWatchman: () => Promise.resolve(false),
-      end: () => Promise.resolve(),
+      isWatchman: () => Promise(false),
+      end: () => Promise(),
     });
   }
 

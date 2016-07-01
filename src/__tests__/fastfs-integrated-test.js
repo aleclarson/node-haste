@@ -22,7 +22,7 @@ const contents = fs.readFileSync(fileName, 'utf-8');
 
 describe('fastfs:', function() {
   let fastfs;
-  const crawling = Promise.resolve([fileName]);
+  const crawling = Promise([fileName]);
   const roots = [__dirname];
   const watcher = new EventEmitter();
 

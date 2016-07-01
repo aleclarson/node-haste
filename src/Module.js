@@ -8,12 +8,14 @@
  */
 'use strict';
 
-const crypto = require('crypto');
-const docblock = require('./DependencyGraph/docblock');
-const isAbsolutePath = require('absolute-path');
 const jsonStableStringify = require('json-stable-stringify');
+const inArray = require('in-array');
+const crypto = require('crypto');
+const sync = require('sync');
+
+const docblock = require('./utils/docblock');
 const path = require('./fastpath');
-const extractRequires = require('./lib/extractRequires');
+const extractRequires = require('./utils/extractRequires');
 
 class Module {
 
@@ -24,11 +26,10 @@ class Module {
     cache,
     extractor = extractRequires,
     transformCode,
-    depGraphHelpers,
     options,
   }) {
-    if (!isAbsolutePath(file)) {
-      throw new Error('Expected file to be absolute path but got ' + file);
+    if (file[0] === '.') {
+      throw Error('Path cannot be relative: ' + file);
     }
 
     this.path = file;
@@ -39,15 +40,45 @@ class Module {
     this._cache = cache;
     this._extractor = extractor;
     this._transformCode = transformCode;
-    this._depGraphHelpers = depGraphHelpers;
     this._options = options;
+
+    this._dependers = Object.create(null);
+    this._dependencies = Object.create(null);
+  }
+
+  isMain() {
+    return this._cache.get(
+      this.path,
+      'isMain',
+      () => this.read().then(data => {
+        const pkg = this.getPackage();
+        return pkg.getMain()
+        .then(mainPath => this.path === mainPath);
+      })
+    )
   }
 
   isHaste() {
     return this._cache.get(
       this.path,
       'isHaste',
-      () => this._readDocBlock().then(({id}) => !!id)
+      () => this._readDocBlock().then(data => {
+        if (!!data.id) {
+          return true;
+        }
+        if (!this._isHasteCompatible()) {
+          return false;
+        }
+        return this.isMain()
+        .then(isMain => {
+          if (!isMain) {
+            return false;
+          }
+          return this.getPackage()
+            .getName()
+            .then(name => !!name);
+        });
+      })
     );
   }
 
@@ -67,24 +98,19 @@ class Module {
         if (id) {
           return id;
         }
-
-        const p = this.getPackage();
-
-        if (!p) {
+        if (!this._isHasteCompatible()) {
+          return path.relative(lotus.path, this.path);
+        }
+        const pkg = this.getPackage();
+        if (!pkg) {
           // Name is full path
           return this.path;
         }
-
-        return p.getName()
-          .then(name => {
-            if (!name) {
-              return this.path;
-            }
-
-            return path.join(name, path.relative(p.root, this.path)).replace(/\\/g, '/');
-          });
+        return this.isMain()
+          .then(isMain => pkg.getName().then(name =>
+            isMain ? name : path.relative(lotus.path, this.path)));
       })
-    );
+    )
   }
 
   getPackage() {
@@ -93,37 +119,6 @@ class Module {
 
   getDependencies(transformOptions) {
     return this.read(transformOptions).then(({dependencies}) => dependencies);
-  }
-
-  invalidate() {
-    this._cache.invalidate(this.path);
-  }
-
-  _parseDocBlock(docBlock) {
-    // Extract an id for the module if it's using @providesModule syntax
-    // and if it's NOT in node_modules (and not a whitelisted node_module).
-    // This handles the case where a project may have a dep that has @providesModule
-    // docblock comments, but doesn't want it to conflict with whitelisted @providesModule
-    // modules, such as react-haste, fbjs-haste, or react-native or with non-dependency,
-    // project-specific code that is using @providesModule.
-    const moduleDocBlock = docblock.parseAsObject(docBlock);
-    const provides = moduleDocBlock.providesModule || moduleDocBlock.provides;
-
-    const id = provides && !this._depGraphHelpers.isNodeModulesDir(this.path)
-        ? /^\S+/.exec(provides)[0]
-        : undefined;
-    return {id, moduleDocBlock};
-  }
-
-  _readDocBlock(contentPromise) {
-    if (!this._docBlock) {
-      if (!contentPromise) {
-        contentPromise = this._fastfs.readWhile(this.path, whileInDocBlock);
-      }
-      this._docBlock = contentPromise
-        .then(docBlock => this._parseDocBlock(docBlock));
-    }
-    return this._docBlock;
   }
 
   read(transformOptions) {
@@ -145,7 +140,7 @@ class Module {
           const transformCode = this._transformCode;
           const codePromise = transformCode
               ? transformCode(this, source, transformOptions)
-              : Promise.resolve({code: source});
+              : Promise({code: source});
           return codePromise.then(result => {
             const {
               code,
@@ -178,7 +173,7 @@ class Module {
     return false;
   }
 
-  isAsset_DEPRECATED() {
+  isNull() {
     return false;
   }
 
@@ -191,6 +186,77 @@ class Module {
       type: this.type,
       path: this.path,
     };
+  }
+
+  _parseDocBlock(docBlock) {
+    // Extract an id for the module if it's using @providesModule syntax
+    // and if it's NOT in node_modules (and not a whitelisted node_module).
+    // This handles the case where a project may have a dep that has @providesModule
+    // docblock comments, but doesn't want it to conflict with whitelisted @providesModule
+    // modules, such as react-haste, fbjs-haste, or react-native or with non-dependency,
+    // project-specific code that is using @providesModule.
+    const moduleDocBlock = docblock.parseAsObject(docBlock);
+    const provides = moduleDocBlock.providesModule || moduleDocBlock.provides;
+
+    const id = provides && !/node_modules/.test(this.path)
+        ? /^\S+/.exec(provides)[0]
+        : undefined;
+    return {id, moduleDocBlock};
+  }
+
+  _readDocBlock(contentPromise) {
+    if (!this._docBlock) {
+      if (!contentPromise) {
+        contentPromise = this._fastfs.readWhile(this.path, whileInDocBlock);
+      }
+      this._docBlock = contentPromise
+        .then(docBlock => this._parseDocBlock(docBlock));
+    }
+    return this._docBlock;
+  }
+
+  // We don't want 'node_modules' to be haste paths
+  // unless the package is a watcher root.
+  _isHasteCompatible() {
+    const pkg = this.getPackage();
+    if (!pkg) {
+      return false;
+    }
+    if (!/node_modules/.test(this.path)) {
+      return true;
+    }
+    return inArray(this._fastfs._roots, pkg.root);
+  }
+
+  _processFileChange(type) {
+    this._cache.invalidate(this.path);
+    this._moduleCache.removeModule(this.path);
+
+    // Any old dependencies should NOT have this Module
+    // in their `_dependers` hash table.
+    sync.each(this._dependencies, (mod, hash) => {
+      delete mod._dependers[hash];
+    });
+
+    if (type === 'delete') {
+
+      // Catch other Modules still depending on this deleted Module.
+      sync.each(this._dependers, (mod, hash) => {
+        delete mod._dependencies[hash];
+      });
+
+    } else {
+
+      // Force the ModuleCache to regenerate this Module.
+      let newModule = this._moduleCache.getModule(this.path);
+
+      // Force any Modules (that depend on the old Module)
+      // to depend on the new Module.
+      sync.each(this._dependers, (mod, hash) => {
+        mod._dependencies[hash] = newModule;
+        newModule._dependers[hash] = mod;
+      });
+    }
   }
 }
 

@@ -38,7 +38,7 @@ describe('Cache', () => {
       var cache = new Cache({
         cacheKey: 'cache',
       });
-      var loaderCb = jest.genMockFn().mockImpl(() => Promise.resolve());
+      var loaderCb = jest.genMockFn().mockImpl(() => Promise());
 
       return cache
         .get('/rootDir/someFile', 'field', loaderCb)
@@ -61,7 +61,7 @@ describe('Cache', () => {
       });
       var index = 0;
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve(index++)
+        Promise(index++)
       );
 
       return cache
@@ -87,7 +87,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('lol')
+        Promise('lol')
       );
 
       return cache
@@ -108,7 +108,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('lol')
+        Promise('lol')
       );
 
       return cache
@@ -137,7 +137,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('lol' + mtime)
+        Promise('lol' + mtime)
       );
 
       return cache
@@ -221,7 +221,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('new value')
+        Promise('new value')
       );
 
       return cache
@@ -258,13 +258,13 @@ describe('Cache', () => {
       });
 
       cache.get('/rootDir/bar', 'field', () =>
-        Promise.resolve('bar value')
+        Promise('bar value')
       );
       cache.get('/rootDir/foo', 'field', () =>
-        Promise.resolve('foo value')
+        Promise('foo value')
       );
       cache.get('/rootDir/baz', 'field', () =>
-        Promise.resolve('baz value')
+        Promise('baz value')
       );
 
       setTimeout(() => {
@@ -288,7 +288,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('banana')
+        Promise('banana')
       );
       var file = '/rootDir/someFile';
 
@@ -316,7 +316,7 @@ describe('Cache', () => {
         cacheKey: 'cache',
       });
       var loaderCb = jest.genMockFn().mockImpl(() =>
-        Promise.resolve('banana')
+        Promise('banana')
       );
       var file = '/rootDir/someFile';
 

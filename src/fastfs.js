@@ -9,33 +9,33 @@
 'use strict';
 
 const {EventEmitter} = require('events');
+const emptyFunction = require('emptyFunction');
 
-const fs = require('graceful-fs');
 const File = require('./File');
 const path = require('./fastpath');
+const isDescendant = require('./utils/isDescendant');
+const matchExtensions = require('./utils/matchExtensions');
 
 const NOT_FOUND_IN_ROOTS = 'NotFoundInRootsError';
 
 class Fastfs extends EventEmitter {
-  constructor(name, roots, fileWatcher, {ignore, crawling, activity}) {
+  constructor(name, {
+    roots,
+    lazyRoots,
+    fileWatcher,
+    ignoreFilePath = emptyFunction.thatReturnsFalse,
+    crawling,
+    activity,
+  }) {
     super();
     this._name = name;
+    this._roots = this._createRoots(roots);
+    this._lazyRoots = this._createLazyRoots(lazyRoots);
     this._fileWatcher = fileWatcher;
-    this._ignore = ignore;
-    this._roots = roots.map(root => {
-      // If the path ends in a separator ("/"), remove it to make string
-      // operations on paths safer.
-      if (root.endsWith(path.sep)) {
-        root = root.substr(0, root.length - 1);
-      }
-
-      root = path.resolve(root);
-
-      return new File(root, true);
-    });
-    this._fastPaths = Object.create(null);
+    this._ignoreFilePath = ignoreFilePath;
     this._crawling = crawling;
     this._activity = activity;
+    this._fastPaths = Object.create(null);
   }
 
   build() {
@@ -43,7 +43,7 @@ class Fastfs extends EventEmitter {
       let fastfsActivity;
       const activity = this._activity;
       if (activity) {
-        fastfsActivity = activity.startEvent('Building in-memory fs for ' + this._name);
+        fastfsActivity = activity.startEvent(this._name);
       }
       files.forEach(filePath => {
         const root = this._getRoot(filePath);
@@ -70,7 +70,7 @@ class Fastfs extends EventEmitter {
   }
 
   stat(filePath) {
-    return Promise.resolve().then(() => this._getFile(filePath).stat());
+    return Promise.try(() => this._getFile(filePath).stat());
   }
 
   getAllFiles() {
@@ -78,12 +78,9 @@ class Fastfs extends EventEmitter {
       .filter(filePath => !this._fastPaths[filePath].isDir);
   }
 
-  findFilesByExts(exts, { ignore } = {}) {
-    return this.getAllFiles()
-      .filter(filePath => (
-        exts.indexOf(path.extname(filePath).substr(1)) !== -1 &&
-        (!ignore || !ignore(filePath))
-      ));
+  findFilesByExts(exts, { ignoreFilePath } = {}) {
+    return this.getAllFiles().filter(filePath =>
+      matchExtensions(exts, filePath) && !ignoreFilePath(filePath));
   }
 
   matchFilesByPattern(pattern) {
@@ -156,11 +153,37 @@ class Fastfs extends EventEmitter {
       .map(name => path.join(dirFile.path, name));
   }
 
+  _createRoots(rootPaths, each = emptyFunction) {
+    return rootPaths && rootPaths.map(rootPath => {
+      // If the path ends in a separator ("/"), remove it to make string
+      // operations on paths safer.
+      if (rootPath.endsWith(path.sep)) {
+        rootPath = rootPath.substr(0, rootPath.length - 1);
+      }
+
+      rootPath = path.resolve(rootPath);
+      const root = new File(rootPath, true);
+      each(root);
+      return root;
+    });
+  }
+
+  _createLazyRoots(rootPaths) {
+    return this._createRoots(rootPaths, (root) => {
+      root.isLazy = true;
+    });
+  }
+
   _getRoot(filePath) {
-    for (let i = 0; i < this._roots.length; i++) {
-      const possibleRoot = this._roots[i];
-      if (isDescendant(possibleRoot.path, filePath)) {
-        return possibleRoot;
+    return this._searchRoots(filePath, this._roots) ||
+      this._searchRoots(filePath, this._lazyRoots);
+  }
+
+  _searchRoots(filePath, roots) {
+    for (let i = 0; i < roots.length; i++) {
+      let root = roots[i];
+      if (isDescendant(root.path, filePath)) {
+        return root;
       }
     }
     return null;
@@ -169,7 +192,7 @@ class Fastfs extends EventEmitter {
   _getAndAssertRoot(filePath) {
     const root = this._getRoot(filePath);
     if (!root) {
-      const error = new Error(`File ${filePath} not found in any of the roots`);
+      const error = new Error(`File '${filePath}' not found in any of the roots`);
       error.type = NOT_FOUND_IN_ROOTS;
       throw error;
     }
@@ -179,9 +202,11 @@ class Fastfs extends EventEmitter {
   _getFile(filePath) {
     filePath = path.resolve(filePath);
     if (!this._fastPaths[filePath]) {
-      const file = this._getAndAssertRoot(filePath).getFileFromPath(filePath);
-      if (file) {
-        this._fastPaths[filePath] = file;
+      const root = this._getAndAssertRoot(filePath);
+      if (this._ignoreFilePath(filePath)) {
+        this._fastPaths[filePath] = root.getFileFromPath(filePath);
+      } else {
+        this._fastPaths[filePath] = root._createFileFromPath(filePath);
       }
     }
 
@@ -189,37 +214,40 @@ class Fastfs extends EventEmitter {
   }
 
   _processFileChange(type, filePath, rootPath, fstat) {
-    const absPath = path.join(rootPath, filePath);
-    if (this._ignore(absPath) || (fstat && fstat.isDirectory())) {
-      return;
-    }
+    const absPath = path.resolve(rootPath, filePath);
+    if (this._ignoreFilePath(absPath)) { return }
+    if (fstat && fstat.isDirectory()) { return }
 
-    // Make sure this event belongs to one of our roots.
     const root = this._getRoot(absPath);
-    if (!root) {
-      return;
-    }
+    if (!root) { return }
 
-    if (type === 'delete' || type === 'change') {
-      const file = this._getFile(absPath);
+    if (type === 'add') {
+      try {
+        const file = this._getFile(absPath);
+      } catch(error) {
+        if (error.code !== NOT_FOUND_IN_ROOTS) {
+          throw error;
+        }
+      }
+    } else {
+      const file = this._fastPaths[absPath];
       if (file) {
         file.remove();
+        delete this._fastPaths[absPath];
       }
     }
-
-    delete this._fastPaths[path.resolve(absPath)];
 
     if (type !== 'delete') {
       const file = new File(absPath, false);
       root.addChild(file, this._fastPaths);
     }
 
+    log.moat(1);
+    log.white(type, ' ');
+    log.yellow(lotus.relative(absPath));
+    log.moat(1);
     this.emit('change', type, filePath, rootPath, fstat);
   }
-}
-
-function isDescendant(root, child) {
-  return child.startsWith(root);
 }
 
 module.exports = Fastfs;
