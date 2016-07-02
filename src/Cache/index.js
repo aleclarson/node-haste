@@ -51,6 +51,27 @@ class Cache {
     return fp.join(tmpdir, hash.digest('hex'));
   }
 
+  static loadCacheSync(cachePath) {
+    if (!fs.sync.exists(cachePath)) {
+      return Object.create(null);
+    }
+
+    try {
+      return JSON.parse(fs.sync.read(cachePath));
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        console.warn('Unable to parse cache file. Will clear and continue.');
+        try {
+          fs.sync.remove(cachePath);
+        } catch (err) {
+          // Someone else might've deleted it.
+        }
+        return Object.create(null);
+      }
+      throw e;
+    }
+  }
+
   get(filepath, field, loaderCb) {
     if (!fp.isAbsolute(filepath)) {
       throw new Error('Use absolute paths');
@@ -176,7 +197,7 @@ class Cache {
 
   _loadCacheSync(cachePath) {
     var ret = Object.create(null);
-    var cacheOnDisk = loadCacheSync(cachePath);
+    var cacheOnDisk = Cache.loadCacheSync(cachePath);
 
     // Filter outdated cache and convert to promises.
     Object.keys(cacheOnDisk).forEach(key => {
@@ -198,27 +219,6 @@ class Cache {
     });
 
     return ret;
-  }
-}
-
-function loadCacheSync(cachePath) {
-  if (!fs.sync.exists(cachePath)) {
-    return Object.create(null);
-  }
-
-  try {
-    return JSON.parse(fs.sync.read(cachePath));
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      console.warn('Unable to parse cache file. Will clear and continue.');
-      try {
-        fs.sync.remove(cachePath);
-      } catch (err) {
-        // Someone else might've deleted it.
-      }
-      return Object.create(null);
-    }
-    throw e;
   }
 }
 
