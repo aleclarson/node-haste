@@ -10,6 +10,8 @@
 
 const {EventEmitter} = require('events');
 const emptyFunction = require('emptyFunction');
+const fs = require('io/sync');
+const Promise = require('Promise');
 
 const File = require('./File');
 const fp = require('./fastpath');
@@ -23,7 +25,7 @@ class Fastfs extends EventEmitter {
     roots,
     lazyRoots,
     fileWatcher,
-    ignoreFilePath = emptyFunction.thatReturnsFalse,
+    blacklist = emptyFunction.thatReturnsFalse,
     crawling,
     activity,
   }) {
@@ -32,7 +34,7 @@ class Fastfs extends EventEmitter {
     this._roots = this._createRoots(roots);
     this._lazyRoots = this._createLazyRoots(lazyRoots);
     this._fileWatcher = fileWatcher;
-    this._ignoreFilePath = ignoreFilePath;
+    this._blacklist = blacklist;
     this._crawling = crawling;
     this._activity = activity;
     this._fastPaths = Object.create(null);
@@ -78,13 +80,14 @@ class Fastfs extends EventEmitter {
       .filter(filePath => !this._fastPaths[filePath].isDir);
   }
 
-  findFilesByExts(exts, { ignoreFilePath } = {}) {
-    return this.getAllFiles().filter(filePath =>
-      matchExtensions(exts, filePath) && !ignoreFilePath(filePath));
+  findFilesByExts(exts) {
+    return this.getAllFiles()
+      .filter(filePath => matchExtensions(exts, filePath));
   }
 
   matchFilesByPattern(pattern) {
-    return this.getAllFiles().filter(file => file.match(pattern));
+    return this.getAllFiles()
+      .filter(filePath => filePath.match(pattern));
   }
 
   readFile(filePath) {
@@ -201,52 +204,88 @@ class Fastfs extends EventEmitter {
 
   _getFile(filePath) {
     filePath = fp.resolve(filePath);
-    if (!this._fastPaths[filePath]) {
+
+    let file = this._fastPaths[filePath];
+    if (!file) {
       const root = this._getAndAssertRoot(filePath);
-      if (this._ignoreFilePath(filePath)) {
-        this._fastPaths[filePath] = root.getFileFromPath(filePath);
+      if (!root.isLazy) {
+        file = root.getFileFromPath(filePath);
+      } else if (fs.isFile(filePath)) {
+        file = this._addChild(root, filePath);
       } else {
-        this._fastPaths[filePath] = root._createFileFromPath(filePath);
+        console.log(`File does not exist: '${filePath}'`);
       }
     }
 
-    return this._fastPaths[filePath];
+    return file;
   }
 
-  _processFileChange(type, filePath, rootPath, fstat) {
-    const absPath = fp.resolve(rootPath, filePath);
-    if (this._ignoreFilePath(absPath)) { return }
+  _processFileChange(type, relPath, rootPath, fstat) {
+    const filePath = fp.resolve(rootPath, relPath);
+    if (this._blacklist(filePath)) { return }
     if (fstat && fstat.isDirectory()) { return }
 
-    const root = this._getRoot(absPath);
+    const root = this._getRoot(filePath);
     if (!root) { return }
 
-    if (type === 'add') {
-      try {
-        const file = this._getFile(absPath);
-      } catch(error) {
-        if (error.code !== NOT_FOUND_IN_ROOTS) {
-          throw error;
-        }
-      }
-    } else {
-      const file = this._fastPaths[absPath];
-      if (file) {
-        file.remove();
-        delete this._fastPaths[absPath];
-      }
+    let file = this._fastPaths[filePath];
+    if (file && type !== 'add') {
+      file.remove();
+      delete this._fastPaths[filePath];
     }
 
     if (type !== 'delete') {
-      const file = new File(absPath, false);
-      root.addChild(file, this._fastPaths);
+      file = this._addChild(root, filePath);
     }
 
     log.moat(1);
     log.white(type, ' ');
-    log.yellow(lotus.relative(absPath));
+    log.yellow(lotus.relative(filePath));
     log.moat(1);
     this.emit('change', type, filePath, rootPath, fstat);
+  }
+
+  _addChild(root, filePath) {
+    const parts = fp.relative(root.path, filePath).split(fp.sep);
+    const numParts = parts.length;
+    let parent = root;
+    for (let i = 0; i < numParts; i++) {
+      let nextPath = parent.path + "/" + parts[i];
+      let nextFile = root.getFileFromPath(nextPath);
+      if (nextFile == null) {
+        let isDir = i < numParts - 1;
+        let isValid = isDir ? fs.isDir : fs.isFile;
+        if (!isValid(nextPath)) {
+          let fileType = isDir ? 'directory' : 'file';
+          let error = Error('"' + nextPath + '" is not a ' + fileType + ' that exists.');
+          error.type = NOT_FOUND_IN_ROOTS;
+          throw error;
+        }
+
+        nextFile = new File(nextPath, isDir);
+        nextFile.parent = parent;
+
+        if (isDir) {
+          let filename = 'package.json';
+          let pkgJsonPath = fp.join(nextPath, filename);
+          if (fs.isFile(pkgJsonPath)) {
+            let pkgJson = new File(pkgJsonPath, false);
+            pkgJson.parent = nextFile;
+            nextFile.children[filename] = pkgJson;
+            this._fastPaths[pkgJsonPath] = pkgJson;
+          }
+        } else {
+          let filename = fp.basename(nextPath);
+          parent.children[filename] = nextFile;
+          this._fastPaths[nextPath] = nextFile;
+        }
+      }
+      if (nextFile.isDir) {
+        parent = nextFile;
+      } else {
+        return nextFile;
+      }
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 'use strict';
 
-const lotus = require('lotus-require');
+const Promise = require('Promise');
+
 const Module = require('./Module');
 const fp = require('./fastpath');
 

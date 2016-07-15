@@ -10,10 +10,8 @@
 
 const fp = require('../fastpath');
 
-module.exports = function resolveFileExtension(filePath, {
-  extensions,
-  resolver,
-}) {
+function resolveFileExtension(filePath, extensions, resolver) {
+
   // If an extension is provided, don't try the default extensions.
   if (fp.extname(filePath)) {
     return resolver(filePath);
@@ -22,8 +20,10 @@ module.exports = function resolveFileExtension(filePath, {
   // Try each default extension.
   for (let i = 0; i < extensions.length; i++) {
     let result = resolver(filePath + '.' + extensions[i]);
-    if (result !== undefined) {
+    if (result != null) {
       return result;
     }
   }
 }
+
+module.exports = resolveFileExtension;

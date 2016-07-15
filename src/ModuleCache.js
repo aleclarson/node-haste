@@ -1,8 +1,9 @@
 'use strict';
 
 const AssetModule = require('./AssetModule');
-const Package = require('./Package');
 const Module = require('./Module');
+const NullModule = require('./NullModule');
+const Package = require('./Package');
 const Polyfill = require('./Polyfill');
 const fp = require('./fastpath');
 
@@ -30,6 +31,10 @@ class ModuleCache {
     fastfs.on('change', this._processFileChange.bind(this));
   }
 
+  getAllModules() {
+    return this._moduleCache;
+  }
+
   getCachedModule(filePath) {
     return this._moduleCache[
       filePath.toLowerCase()
@@ -52,8 +57,21 @@ class ModuleCache {
     return this._moduleCache[hash];
   }
 
-  getAllModules() {
-    return this._moduleCache;
+  getNullModule(modulePath) {
+    const hash = modulePath.toLowerCase();
+    let module = this._moduleCache[hash];
+    if (!module || !module.isNull()) {
+      this._moduleCache[hash] = new NullModule({
+        file: modulePath,
+        fastfs: this._fastfs,
+        moduleCache: this,
+        cache: this._cache,
+        extractor: this._extractRequires,
+        transformCode: this._transformCode,
+        options: this._moduleOptions,
+      });
+    }
+    return this._moduleCache[hash];
   }
 
   getAssetModule(filePath) {

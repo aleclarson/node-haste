@@ -21,6 +21,7 @@ jest
 jest.useRealTimers();
 
 var fs = require('graceful-fs');
+var Promise = require('Promise');
 
 var Cache = require('../');
 

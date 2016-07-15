@@ -1,5 +1,7 @@
 'use strict';
 
+const Promise = require('Promise');
+
 const Module = require('./Module');
 
 class NullModule extends Module {
@@ -30,6 +32,10 @@ class NullModule extends Module {
 
   isNull() {
     return true;
+  }
+
+  read() {
+    return Promise(this.code);
   }
 }
 

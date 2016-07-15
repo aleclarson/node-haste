@@ -10,27 +10,26 @@
 
 const fp = require('../fastpath');
 
-module.exports = function resolveFilePlatform(filePath, {
-  platform,
-  preferNativePlatform,
-  resolver,
-}) {
+function resolveFilePlatform(filePath, platform, preferNativePlatform, resolver) {
   const ext = fp.extname(filePath);
+  const filename = ext ? filePath.slice(0, 0 - ext.length) : filePath;
 
-  let result = resolver(filePath + '.' + platform + ext);
-  if (result !== undefined) {
+  let result = resolver(filename + '.' + platform + ext);
+  if (result != null) {
     return result;
   }
 
   if (preferNativePlatform) {
-    result = resolver(filePath + '.native' + ext);
-    if (result !== undefined) {
+    result = resolver(filename + '.native' + ext);
+    if (result != null) {
       return result;
     }
   }
 
-  result = resolver(filePath + ext);
-  if (result !== undefined) {
+  result = resolver(filePath);
+  if (result != null) {
     return result;
   }
 }
+
+module.exports = resolveFilePlatform;

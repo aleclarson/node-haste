@@ -6,7 +6,7 @@ const fp = require('../fastpath');
 const fs = require('io');
 const Promise = require('Promise');
 
-function nodeRecReadDir(roots, {ignoreFilePath, extensions}) {
+function nodeRecReadDir(roots, {blacklist, extensions}) {
   const queue = roots.slice();
   const retFiles = [];
   const extPattern = new RegExp(
@@ -32,7 +32,7 @@ function nodeRecReadDir(roots, {ignoreFilePath, extensions}) {
       })
       .then(([files, stats]) => {
         files.forEach((filePath, i) => {
-          if (ignoreFilePath(filePath)) {
+          if (blacklist(filePath)) {
             return;
           }
 

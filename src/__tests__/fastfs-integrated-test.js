@@ -16,6 +16,7 @@ const Fastfs = require('../fastfs');
 const {EventEmitter} = require('events');
 const fs = require('fs');
 const path = require('path');
+const Promise = require('Promise');
 
 const fileName = path.resolve(__dirname, 'fastfs-data');
 const contents = fs.readFileSync(fileName, 'utf-8');

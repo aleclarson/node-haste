@@ -8,6 +8,8 @@
  */
 'use strict';
 
+const Promise = require('Promise');
+
 class ResolutionResponse {
   constructor({transformOptions}) {
     this.transformOptions = transformOptions;
@@ -17,6 +19,7 @@ class ResolutionResponse {
     this.numPrependedDependencies = 0;
     this._mappings = Object.create(null);
     this._finalized = false;
+    this._finalizeCallbacks = [];
   }
 
   copy(properties) {
@@ -54,11 +57,28 @@ class ResolutionResponse {
   }
 
   finalize() {
-    return this._mainModule.getName().then(id => {
+    return this._mainModule.getName()
+    .then(id => {
       this.mainModuleId = id;
       this._finalized = true;
+      process.nextTick(() => {
+        this._finalizeCallbacks.forEach(callback => callback(this));
+        this._finalizeCallbacks = null;
+      });
       return this;
     });
+  }
+
+  onFinalize(callback) {
+    if (this._finalized) {
+      return callback ? callback(this) : Promise(this);
+    } else if (callback) {
+      this._finalizeCallbacks.push(callback);
+    } else {
+      const {promise, resolve} = Promise.defer();
+      this._finalizeCallbacks.push(resolve);
+      return promise;
+    }
   }
 
   pushDependency(module) {

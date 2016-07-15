@@ -9,6 +9,7 @@
 'use strict';
 
 const fs = require('graceful-fs');
+const Promise = require('Promise');
 
 module.exports = readWhile;
 

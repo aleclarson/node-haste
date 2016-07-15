@@ -8,11 +8,14 @@
  */
 'use strict';
 
+const Promise = require('Promise');
+
 module.exports = class AsyncTaskGroup {
   constructor() {
+    const deferred = Promise.defer();
     this._runningTasks = new Set();
-    this._resolve = null;
-    this.done = Promise.defer(resolve => this._resolve = resolve);
+    this._resolve = deferred.resolve;
+    this.done = deferred.promise;
   }
 
   start(taskHandle) {

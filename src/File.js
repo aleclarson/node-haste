@@ -9,6 +9,7 @@
 'use strict';
 
 const fs = require('io');
+const Promise = require('Promise');
 
 const fp = require('./fastpath');
 const readWhile = require('./utils/readWhile');
@@ -76,12 +77,6 @@ class File {
   }
 
   getFileFromPath(filePath) {
-    return this.isLazy ?
-      this._lazyFileFromPath(filePath) :
-      this._getFileFromPath(filePath);
-  }
-
-  _getFileFromPath(filePath) {
     const parts = fp.relative(this.path, filePath).split(fp.sep);
 
     /*eslint consistent-this:0*/
@@ -100,42 +95,6 @@ class File {
       file = file.children[fileName];
     }
 
-    return file;
-  }
-
-  _lazyFileFromPath(filePath) {
-    return this._getFileFromPath(filePath) ||
-      this._createFileFromPath(filePath);
-  }
-
-  _createFileFromPath(filePath) {
-    var file = this;
-    const parts = fp.relative(this.path, filePath).split(fp.sep);
-    parts.forEach((part, i) => {
-      const newPath = file.path + "/" + part;
-      var newFile = this._getFileFromPath(newPath);
-      if (newFile == null) {
-        let isDir = i < parts.length - 1;
-        let isValid = isDir ? fs.sync.isDir : fs.sync.isFile;
-        if (!isValid(newPath)) {
-          let fileType = isDir ? 'directory' : 'file';
-          let error = Error('"' + newPath + '" is not a ' + fileType + ' that exists.');
-          error.type = NOT_FOUND_IN_ROOTS;
-          throw error;
-        }
-        newFile = new File(newPath, isDir);
-        file.addChild(newFile);
-
-        if (isDir) {
-          let pkgJsonPath = newPath + '/package.json';
-          if (fs.sync.isFile(pkgJsonPath)) {
-            let pkgJson = new File(pkgJsonPath, false);
-            newFile.addChild(pkgJson);
-          }
-        }
-      }
-      file = newFile;
-    });
     return file;
   }
 }

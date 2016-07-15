@@ -9,6 +9,8 @@
 'use strict';
 
 const jsonStableStringify = require('json-stable-stringify');
+const emptyFunction = require('emptyFunction');
+const Promise = require('Promise');
 const inArray = require('in-array');
 const crypto = require('crypto');
 const sync = require('sync');
@@ -46,23 +48,25 @@ class Module {
     this._dependencies = Object.create(null);
   }
 
+  get(key, factory = emptyFunction) {
+    const entry = fp.isAbsolute(this.path)
+      ? this.path : fp.sep + 'stub' + fp.sep + this.path;
+    return this._cache.get(entry, key, factory);
+  }
+
   isMain() {
-    return this._cache.get(
-      this.path,
-      'isMain',
-      () => this.read().then(data => {
+    return this.get('isMain', () =>
+      this.read().then(data => {
         const pkg = this.getPackage();
         return pkg.getMain()
         .then(mainPath => this.path === mainPath);
       })
-    )
+    );
   }
 
   isHaste() {
-    return this._cache.get(
-      this.path,
-      'isHaste',
-      () => this._readDocBlock().then(data => {
+    return this.get('isHaste', () =>
+      this._readDocBlock().then(data => {
         if (!!data.id) {
           return true;
         }
@@ -91,10 +95,8 @@ class Module {
   }
 
   getName() {
-    return this._cache.get(
-      this.path,
-      'name',
-      () => this._readDocBlock().then(({id}) => {
+    return this.get('name', () =>
+      this._readDocBlock().then(({id}) => {
         if (id) {
           return id;
         }
@@ -121,9 +123,19 @@ class Module {
     return this.read(transformOptions).then(({dependencies}) => dependencies);
   }
 
+  getDependency(name) {
+    const hash = this.path + ':' + name;
+    return this._dependencies[hash];
+  }
+
+  setDependency(name, mod) {
+    const hash = this.path + ':' + name;
+    mod._dependers[hash] = this;
+    this._dependencies[hash] = mod;
+  }
+
   read(transformOptions) {
-    return this._cache.get(
-      this.path,
+    return this.get(
       cacheKey('moduleData', transformOptions),
       () => {
         const fileContentPromise = this._fastfs.readFile(this.path);

@@ -23,14 +23,14 @@ class HasteMap {
     projectExts,
     fastfs,
     moduleCache,
-    ignoreFilePath,
+    blacklist,
     preferNativePlatform,
     platforms,
   }) {
     this._projectExts = projectExts;
     this._fastfs = fastfs;
     this._moduleCache = moduleCache;
-    this._ignoreFilePath = ignoreFilePath;
+    this._blacklist = blacklist;
     this._preferNativePlatform = preferNativePlatform;
     this._platforms = platforms;
   }
@@ -38,7 +38,7 @@ class HasteMap {
   build() {
     this._map = Object.create(null);
     return Promise.map(this._fastfs.getAllFiles(), (filePath) => {
-      if (this._ignoreFilePath(filePath)) { return }
+      if (this._blacklist(filePath)) { return }
       if (matchExtensions(this._projectExts, filePath)) {
         return this._processHasteModule(filePath);
       } else if (filePath.endsWith(PACKAGE_JSON)) {

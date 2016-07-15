@@ -1,2 +1,2 @@
 
-module.exports = require('./dist/fastpath');
+module.exports = require('./js/fastpath');

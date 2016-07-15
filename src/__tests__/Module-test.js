@@ -23,6 +23,7 @@ jest
 const Fastfs = require('../fastfs');
 const Module = require('../Module');
 const ModuleCache = require('../ModuleCache');
+const Promise = require('Promise');
 const fs = require('graceful-fs');
 
 const packageJson =

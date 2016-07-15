@@ -12,6 +12,8 @@ jest.autoMockOff();
 
 jest.mock('fs');
 
+const Promise = require('Promise');
+
 const DependencyGraph = require('../index');
 const Module = require('../Module');
 const fs = require('graceful-fs');
@@ -23,8 +25,8 @@ jasmine.DEFAULT_TIMEOUT_INTERVAL = 10000;
 describe('DependencyGraph', function() {
   let defaults;
 
-  function getOrderedDependenciesAsJSON(dgraph, entryPath, platform, recursive = true) {
-    return dgraph.getDependencies({entryPath, platform, recursive})
+  function getOrderedDependenciesAsJSON(dgraph, entryFile, platform, recursive = true) {
+    return dgraph.getDependencies({entryFile, platform, recursive})
       .then(response => response.finalize())
       .then(({ dependencies }) => Promise.all(dependencies.map(dep => Promise.all([
         dep.getName(),
@@ -5149,7 +5151,7 @@ describe('DependencyGraph', function() {
       var dgraph = new DependencyGraph({
         ...defaults,
         roots: [root],
-        ignoreFilePath: function(filePath) {
+        blacklist: function(filePath) {
           if (filePath === '/root/bar.js') {
             return true;
           }
@@ -5694,7 +5696,7 @@ describe('DependencyGraph', function() {
         roots: [root],
       });
 
-      return dgraph.getDependencies({entryPath: '/root/index.js'})
+      return dgraph.getDependencies({entryFile: '/root/index.js'})
         .then(response => response.finalize())
         .then(response => {
           expect(response.mocks).toEqual({});
@@ -5724,7 +5726,7 @@ describe('DependencyGraph', function() {
         mocksPattern,
       });
 
-      return dgraph.getDependencies({entryPath: '/root/b.js'})
+      return dgraph.getDependencies({entryFile: '/root/b.js'})
         .then(response => response.finalize())
         .then(response => {
           expect(response.mocks).toEqual({
@@ -5880,7 +5882,7 @@ describe('DependencyGraph', function() {
 
     function getDependencies() {
       return dependencyGraph.getDependencies({
-        entryPath: '/root/index.js',
+        entryFile: '/root/index.js',
         onProgress,
       });
     }
@@ -5944,7 +5946,7 @@ describe('DependencyGraph', function() {
       });
 
       return dependencyGraph.getDependencies({
-        entryPath: '/root/index.js',
+        entryFile: '/root/index.js',
       }).then(({dependencies}) => {
         const [, assetModule] = dependencies;
         return assetModule.getDependencies()

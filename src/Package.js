@@ -63,65 +63,60 @@ class Package {
     this._moduleCache.removePackage(this.path);
   }
 
-  redirectRequire(name, resolveFilePath) {
+  redirectRequire(moduleName, resolveFilePath) {
 
-    if (name[0] === '.') {
+    if (moduleName[0] === '.') {
       throw new Error('Relative paths are not supported!');
     }
 
     return this.read().then(json => {
-      let result;
-
       const replacements = getReplacements(json);
       if (!replacements || typeof replacements !== 'object') {
-        return name;
-      }
-
-      // Module names can be redirected as is.
-      if (name[0] !== fp.sep) {
-        result = replacements[name];
-        if (result !== undefined) {
-          return result;
-        }
-        return name;
+        return moduleName;
       }
 
       // Returns undefined if no replacement exists.
-      const redirect = (filePath) => {
-        filePath = replacements[filePath];
+      const redirect = (modulePath) => {
+        const replacement = replacements[modulePath];
 
         // Support disabling modules.
-        if (filePath === false) {
-          return null;
+        if (replacement === false) { return null }
+
+        if (typeof replacement !== 'string') { return }
+
+        if (fp.isAbsolute(replacement)) {
+          throw Error(`Redirections cannot use absolute paths: '${replacement}'`);
         }
 
-        // Return an absolute path!
-        if (typeof filePath === 'string') {
-          return fp.join(this.root, filePath);
-        }
+        // Always return an absolute path!
+        return fp.join(this.root, replacement);
       }
 
-      // Redirect absolute paths, but first convert it to a
-      // path that is relative to the 'package.json' file!
-      const relPath = './' + fp.relative(this.root, name);
+      // The unique key used in the "browser"
+      // or "react-native" field in the 'package.json'!
+      let modulePath = moduleName;
 
-      // Try resolving as is.
-      result = redirect(relPath);
-      if (result !== undefined) {
-        return result;
+      // Make absolute paths relative to the 'package.json'!
+      if (fp.isAbsolute(moduleName)) {
+        modulePath = './' + fp.relative(this.root, moduleName);
+      }
+
+      let replacement = redirect(modulePath);
+      if (replacement !== undefined) {
+        return replacement;
       }
 
       // This hook can be used to try to resolve
       // a relative path using different extensions.
       if (typeof resolveFilePath === 'function') {
-        result = resolveFilePath(relPath, redirect);
-        if (result !== undefined) {
-          return result;
+        replacement = resolveFilePath(modulePath, redirect);
+        if (replacement !== undefined) {
+          return replacement;
         }
       }
 
       // No replacement found.
-      return name;
+      return moduleName;
     });
   }
 

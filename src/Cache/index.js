@@ -180,10 +180,12 @@ class Cache {
 
       .fail(error => {
         log.moat(1);
-        log.red('CacheError: ');
+        log.red(cacheFilepath);
+        log.moat(1);
+        log.red('Error: ');
         log.white('Failed to persist cache!');
         log.moat(0);
-        log.gray.dim(e.stack);
+        log.gray.dim(error.stack);
         log.moat(1);
       })
 
