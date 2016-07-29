@@ -93,17 +93,6 @@ describe('DependencyGraph', function() {
       assetExts: ['png', 'jpg'],
       cache: new Cache(),
       fileWatcher,
-      providesModuleNodeModules: [
-        'haste-fbjs',
-        'react-haste',
-        'react-native',
-        // Parse requires AsyncStorage. They will
-        // change that to require('react-native') which
-        // should work after this release and we can
-        // remove it from here.
-        'parse',
-      ],
-      platforms: ['ios', 'android'],
       shouldThrowOnUnresolvedErrors: () => false,
     };
   });
@@ -3464,7 +3453,6 @@ describe('DependencyGraph', function() {
 
       var dgraph = new DependencyGraph({
         ...defaults,
-        platforms: ['ios', 'android', 'web'],
         roots: [root],
       });
       return getOrderedDependenciesAsJSON(dgraph, '/root/index.ios.js').then(function(deps) {

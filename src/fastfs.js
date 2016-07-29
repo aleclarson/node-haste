@@ -9,36 +9,61 @@
 'use strict';
 
 const {EventEmitter} = require('events');
+
 const emptyFunction = require('emptyFunction');
+const fromArgs = require('fromArgs');
 const fs = require('io/sync');
 const Promise = require('Promise');
+const PureObject = require('PureObject');
+const Type = require('Type');
 
 const File = require('./File');
+const FileWatcher = require('./FileWatcher');
 const fp = require('./fastpath');
 const isDescendant = require('./utils/isDescendant');
 const matchExtensions = require('./utils/matchExtensions');
 
 const NOT_FOUND_IN_ROOTS = 'NotFoundInRootsError';
 
-class Fastfs extends EventEmitter {
-  constructor(name, {
-    roots,
-    lazyRoots,
-    fileWatcher,
-    blacklist = emptyFunction.thatReturnsFalse,
-    crawling,
-    activity,
-  }) {
-    super();
-    this._name = name;
-    this._roots = this._createRoots(roots);
-    this._lazyRoots = this._createLazyRoots(lazyRoots);
-    this._fileWatcher = fileWatcher;
-    this._blacklist = blacklist;
-    this._crawling = crawling;
-    this._activity = activity;
-    this._fastPaths = Object.create(null);
-  }
+const type = Type('Fastfs')
+
+type.inherits(EventEmitter)
+type.createInstance(() => new EventEmitter())
+
+type.defineOptions({
+  name: String.isRequired,
+  roots: Array.isRequired,
+  lazyRoots: Array,
+  fileWatcher: FileWatcher.isRequired,
+  blacklist: Function.withDefault(emptyFunction.thatReturnsFalse),
+  crawling: Promise.isRequired,
+  activity: Object.Kind.isRequired,
+})
+
+type.defineValues({
+
+  _name: fromArgs('name'),
+
+  _roots({ roots }) {
+    return this._createRoots(roots);
+  },
+
+  _lazyRoots({ lazyRoots }) {
+    return this._createLazyRoots(lazyRoots);
+  },
+
+  _fileWatcher: fromArgs('fileWatcher'),
+
+  _blacklist: fromArgs('blacklist'),
+
+  _crawling: fromArgs('crawling'),
+
+  _activity: fromArgs('activity'),
+
+  _fastPaths: PureObject.create,
+})
+
+type.defineMethods({
 
   build() {
     return this._crawling.then(files => {
@@ -69,26 +94,26 @@ class Fastfs extends EventEmitter {
         this._fileWatcher.on('all', this._processFileChange.bind(this));
       }
     });
-  }
+  },
 
   stat(filePath) {
     return Promise.try(() => this._getFile(filePath).stat());
-  }
+  },
 
   getAllFiles() {
     return Object.keys(this._fastPaths)
       .filter(filePath => !this._fastPaths[filePath].isDir);
-  }
+  },
 
   findFilesByExts(exts) {
     return this.getAllFiles()
       .filter(filePath => matchExtensions(exts, filePath));
-  }
+  },
 
   matchFilesByPattern(pattern) {
     return this.getAllFiles()
       .filter(filePath => filePath.match(pattern));
-  }
+  },
 
   readFile(filePath) {
     const file = this._getFile(filePath);
@@ -96,7 +121,7 @@ class Fastfs extends EventEmitter {
       throw new Error(`Unable to find file with path: ${filePath}`);
     }
     return file.read();
-  }
+  },
 
   readWhile(filePath, predicate) {
     const file = this._getFile(filePath);
@@ -104,7 +129,7 @@ class Fastfs extends EventEmitter {
       throw new Error(`Unable to find file with path: ${filePath}`);
     }
     return file.readWhile(predicate);
-  }
+  },
 
   closest(filePath, name) {
     for (let file = this._getFile(filePath).parent;
@@ -115,7 +140,7 @@ class Fastfs extends EventEmitter {
       }
     }
     return null;
-  }
+  },
 
   fileExists(filePath) {
     let file;
@@ -129,7 +154,7 @@ class Fastfs extends EventEmitter {
     }
 
     return file && !file.isDir;
-  }
+  },
 
   dirExists(filePath) {
     let file;
@@ -143,7 +168,7 @@ class Fastfs extends EventEmitter {
     }
 
     return file && file.isDir;
-  }
+  },
 
   matches(dir, pattern) {
     const dirFile = this._getFile(dir);
@@ -154,7 +179,7 @@ class Fastfs extends EventEmitter {
     return Object.keys(dirFile.children)
       .filter(name => name.match(pattern))
       .map(name => fp.join(dirFile.path, name));
-  }
+  },
 
   _createRoots(rootPaths, each = emptyFunction) {
     return rootPaths && rootPaths.map(rootPath => {
@@ -169,18 +194,18 @@ class Fastfs extends EventEmitter {
       each(root);
       return root;
     });
-  }
+  },
 
   _createLazyRoots(rootPaths) {
     return this._createRoots(rootPaths, (root) => {
       root.isLazy = true;
     });
-  }
+  },
 
   _getRoot(filePath) {
     return this._searchRoots(filePath, this._roots) ||
       this._searchRoots(filePath, this._lazyRoots);
-  }
+  },
 
   _searchRoots(filePath, roots) {
     for (let i = 0; i < roots.length; i++) {
@@ -190,7 +215,7 @@ class Fastfs extends EventEmitter {
       }
     }
     return null;
-  }
+  },
 
   _getAndAssertRoot(filePath) {
     const root = this._getRoot(filePath);
@@ -200,7 +225,7 @@ class Fastfs extends EventEmitter {
       throw error;
     }
     return root;
-  }
+  },
 
   _getFile(filePath) {
     filePath = fp.resolve(filePath);
@@ -218,7 +243,7 @@ class Fastfs extends EventEmitter {
     }
 
     return file;
-  }
+  },
 
   _processFileChange(type, relPath, rootPath, fstat) {
     const filePath = fp.resolve(rootPath, relPath);
@@ -242,8 +267,8 @@ class Fastfs extends EventEmitter {
     log.white(type, ' ');
     log.yellow(lotus.relative(filePath));
     log.moat(1);
-    this.emit('change', type, filePath, rootPath, fstat);
-  }
+    this.emit('change', type, relPath, rootPath, fstat);
+  },
 
   _addChild(root, filePath) {
     const parts = fp.relative(root.path, filePath).split(fp.sep);
@@ -286,7 +311,7 @@ class Fastfs extends EventEmitter {
         return nextFile;
       }
     }
-  }
-}
+  },
+})
 
-module.exports = Fastfs;
+module.exports = type.build()

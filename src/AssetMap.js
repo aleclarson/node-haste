@@ -8,19 +8,32 @@
  */
 'use strict';
 
+const PureObject = require('PureObject');
+const Type = require('Type');
+const fromArgs = require('fromArgs');
+
+const Fastfs = require('./fastfs');
+const fp = require('./fastpath');
 const getAssetDataFromName = require('./utils/getAssetDataFromName');
 const matchExtensions = require('./utils/matchExtensions');
-const path = require('path');
 
-class AssetMap {
-  constructor({
-    extensions,
-    fastfs,
-  }) {
-    this.extensions = extensions;
-    this._fastfs = fastfs;
-    this._assets = Object.create(null);
-  }
+const type = Type('AssetMap')
+
+type.defineOptions({
+  extensions: Array.isRequired,
+  fastfs: Fastfs.isRequired,
+})
+
+type.defineValues({
+
+  extensions: fromArgs('extensions'),
+
+  _fastfs: fromArgs('fastfs'),
+
+  _assets: PureObject.create,
+})
+
+type.defineMethods({
 
   build() {
     this._fastfs.findFilesByExts(this.extensions)
@@ -47,16 +60,16 @@ class AssetMap {
       record.scales.splice(insertIndex, 0, asset.resolution);
       record.files.splice(insertIndex, 0, assetPath);
     });
-  }
+  },
 
   resolve(assetPath, platform) {
 
-    if (path.isAbsolute(assetPath)) {
+    if (fp.isAbsolute(assetPath)) {
       if (!matchExtensions(this.extensions, assetPath)) {
         return;
       }
 
-      const dirname = path.dirname(assetPath);
+      const dirname = fp.dirname(assetPath);
       if (!this._fastfs.dirExists(dirname)) {
         log.moat(1)
         log.white('Error: ')
@@ -114,8 +127,14 @@ class AssetMap {
       log.white(`Asset '${assetName}' does not exist!`);
       log.moat(1);
     }
-  }
-}
+  },
+})
+
+module.exports = type.build()
+
+//
+// Helpers
+//
 
 function getAssetKey(assetName, platform) {
   if (platform != null) {
@@ -124,5 +143,3 @@ function getAssetKey(assetName, platform) {
     return assetName;
   }
 }
-
-module.exports = AssetMap;

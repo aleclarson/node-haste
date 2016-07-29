@@ -1,17 +1,46 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ */
 'use strict';
 
+const Type = require('Type');
+const fromArgs = require('fromArgs');
+
+const Cache = require('./Cache');
+const Fastfs = require('./fastfs');
+const ModuleCache = require('./ModuleCache');
 const fp = require('./fastpath');
 
-class Package {
+const type = Type('Package')
 
-  constructor({ file, fastfs, moduleCache, cache }) {
-    this.path = file;
-    this.root = fp.dirname(this.path);
-    this._fastfs = fastfs;
-    this.type = 'Package';
-    this._moduleCache = moduleCache;
-    this._cache = cache;
-  }
+type.defineOptions({
+  file: String.isRequired,
+  fastfs: Fastfs.isRequired,
+  moduleCache: ModuleCache.isRequired,
+  cache: Cache.isRequired,
+})
+
+type.defineValues({
+
+  type: 'Package',
+
+  path: fromArgs('file'),
+
+  root: (opts) => fp.dirname(opts.file),
+
+  _fastfs: fromArgs('fastfs'),
+
+  _moduleCache: fromArgs('moduleCache'),
+
+  _cache: fromArgs('cache'),
+})
+
+type.defineMethods({
 
   getMain() {
     return this.read().then(json => {
@@ -44,24 +73,19 @@ class Package {
 
       return fp.join(this.root, main);
     });
-  }
+  },
 
   isHaste() {
     return this._cache.get(this.path, 'package-haste', () =>
       this.read().then(json => !!json.name)
     );
-  }
+  },
 
   getName() {
     return this._cache.get(this.path, 'package-name', () =>
       this.read().then(json => json.name)
     );
-  }
-
-  _processFileChange() {
-    this._cache.invalidate(this.path);
-    this._moduleCache.removePackage(this.path);
-  }
+  },
 
   redirectRequire(moduleName, resolveFilePath) {
 
@@ -118,7 +142,7 @@ class Package {
       // No replacement found.
       return moduleName;
     });
-  }
+  },
 
   read() {
     if (!this._reading) {
@@ -127,8 +151,14 @@ class Package {
     }
 
     return this._reading;
-  }
-}
+  },
+})
+
+module.exports = type.build()
+
+//
+// Helpers
+//
 
 function getReplacements(pkg) {
   let rn = pkg['react-native'];
@@ -153,5 +183,3 @@ function getReplacements(pkg) {
   // "react-native" as override
   return { ...browser, ...rn };
 }
-
-module.exports = Package;

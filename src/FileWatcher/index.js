@@ -8,63 +8,63 @@
  */
 'use strict';
 
-const EventEmitter  = require('events').EventEmitter;
+const {EventEmitter} = require('events');
+const {execSync} = require('child_process');
+
+const PureObject = require('PureObject');
 const Promise = require('Promise');
+const Type = require('Type');
 const sane = require('sane');
-const execSync = require('child_process').execSync;
 
 const MAX_WAIT_TIME = 120000;
 
-const detectWatcherClass = () => {
-  try {
-    execSync('watchman version', {stdio: 'ignore'});
-    return sane.WatchmanWatcher;
-  } catch (e) {}
-  return sane.NodeWatcher;
-};
+const type = Type('FileWatcher')
 
-const WatcherClass = detectWatcherClass();
+type.inherits(EventEmitter)
+type.createInstance(() => new EventEmitter())
 
-let inited = false;
+type.defineValues({
 
-class FileWatcher extends EventEmitter {
+  _loading: null,
 
-  constructor(rootConfigs) {
-    if (inited) {
-      throw new Error('FileWatcher can only be instantiated once');
-    }
-    inited = true;
+  _watcherByRoot: PureObject.create,
 
-    super();
-    this._watcherByRoot = Object.create(null);
+  _watcherClass() {
+    try {
+      execSync('watchman version', {stdio: 'ignore'});
+      return sane.WatchmanWatcher;
+    } catch (e) {}
+    return sane.NodeWatcher;
+  },
+})
 
-    this._loading = Promise.map(rootConfigs, (rootConfig) => {
-      return this._createWatcher(rootConfig);
-    })
-    .then(watchers => {
-      watchers.forEach((watcher, i) => {
-        this._watcherByRoot[rootConfigs[i].dir] = watcher;
+type.defineMethods({
+
+  watch(config) {
+    const promise = this._loading || Promise();
+    return this._loading = promise.then(() =>
+      this._createWatcher(config)
+      .then(watcher => {
+        this._watcherByRoot[config.dir] = watcher;
         watcher.on(
           'all',
           // args = (type, filePath, root, stat)
           (...args) => this.emit('all', ...args)
         );
-      });
-      return watchers;
-    });
-  }
+      }));
+  },
+
+  isWatchman() {
+    return this._watcherClass == sane.WatchmanWatcher;
+  },
 
   getWatchers() {
     return this._loading;
-  }
+  },
 
   getWatcherForRoot(root) {
     return this._loading.then(() => this._watcherByRoot[root]);
-  }
-
-  isWatchman() {
-    return Promise(FileWatcher.canUseWatchman());
-  }
+  },
 
   end() {
     inited = false;
@@ -73,17 +73,17 @@ class FileWatcher extends EventEmitter {
         watcher => Promise.ify(watcher.close).call(watcher)
       )
     );
-  }
+  },
 
   _createWatcher(rootConfig) {
-    const watcher = new WatcherClass(rootConfig.dir, {
+    const watcher = new this._watcherClass(rootConfig.dir, {
       glob: rootConfig.globs,
       dot: false,
     });
 
     return Promise.defer((resolve, reject) => {
       const rejectTimeout = setTimeout(() => {
-        reject(new Error(timeoutMessage(WatcherClass)));
+        reject(new Error(timeoutMessage(this._watcherClass)));
       }, MAX_WAIT_TIME);
 
       watcher.once('ready', () => {
@@ -91,19 +91,14 @@ class FileWatcher extends EventEmitter {
         resolve(watcher);
       });
     });
-  }
+  },
+})
 
-  static createDummyWatcher() {
-    return Object.assign(new EventEmitter(), {
-      isWatchman: () => Promise(false),
-      end: () => Promise(),
-    });
-  }
+module.exports = type.build()
 
-  static canUseWatchman() {
-    return WatcherClass == sane.WatchmanWatcher;
-  }
-}
+//
+// Helpers
+//
 
 function timeoutMessage(Watcher) {
   const lines = [
@@ -117,5 +112,3 @@ function timeoutMessage(Watcher) {
   }
   return lines.join('\n');
 }
-
-module.exports = FileWatcher;

@@ -11,66 +11,40 @@
 const crypto = require('crypto');
 const fp = require('../fastpath');
 const fs = require('io');
+const has = require('has');
 const os = require('os');
 const Promise = require('Promise');
+const Type = require('Type');
 
-function getObjectValues(object) {
-  return Object.keys(object).map(key => object[key]);
-}
+const type = Type('Cache');
 
-function debounce(fn, delay) {
-  var timeout;
-  return () => {
-    clearTimeout(timeout);
-    timeout = setTimeout(fn, delay);
-  };
-}
+type.defineOptions({
+  resetCache: Boolean.withDefault(false),
+  cacheKey: String,
+  cacheDirectory: String.withDefault(os.tmpDir()),
+})
 
-class Cache {
-  constructor({
-    resetCache,
-    cacheKey,
-    cacheDirectory = os.tmpDir(),
-  }) {
-    this._cacheFilePath = Cache.getCacheFilePath(cacheDirectory, cacheKey);
-    if (!resetCache) {
-      this._data = this._loadCacheSync(this._cacheFilePath);
-    } else {
-      this._data = Object.create(null);
-    }
-
-    this._persistEventually = debounce(
+type.defineValues({
+  _cacheFilePath(options) {
+    return Cache.getCacheFilePath(
+      options.cacheDirectory,
+      options.cacheKey,
+    );
+  },
+  _data(options) {
+    return options.resetCache ?
+      Object.create(null) :
+      this._loadCacheSync(this._cacheFilePath);
+  },
+  _persistEventually() {
+    return debounce(
       this._persistCache.bind(this),
       2000,
     );
-  }
+  },
+})
 
-  static getCacheFilePath(tmpdir, ...args) {
-    const hash = crypto.createHash('md5');
-    args.forEach(arg => hash.update(arg));
-    return fp.join(tmpdir, hash.digest('hex'));
-  }
-
-  static loadCacheSync(cachePath) {
-    if (!fs.sync.exists(cachePath)) {
-      return Object.create(null);
-    }
-
-    try {
-      return JSON.parse(fs.sync.read(cachePath));
-    } catch (e) {
-      if (e instanceof SyntaxError) {
-        console.warn('Unable to parse cache file. Will clear and continue.');
-        try {
-          fs.sync.remove(cachePath);
-        } catch (err) {
-          // Someone else might've deleted it.
-        }
-        return Object.create(null);
-      }
-      throw e;
-    }
-  }
+type.defineMethods({
 
   get(filepath, field, loaderCb) {
     if (!fp.isAbsolute(filepath)) {
@@ -80,7 +54,7 @@ class Cache {
     return this.has(filepath, field)
       ? this._data[filepath].data[field]
       : this.set(filepath, field, loaderCb(filepath));
-  }
+  },
 
   invalidate(filepath, field) {
     if (this.has(filepath, field)) {
@@ -90,16 +64,16 @@ class Cache {
         delete this._data[filepath].data[field];
       }
     }
-  }
+  },
 
   end() {
     return this._persistCache();
-  }
+  },
 
   has(filepath, field) {
-    return Object.prototype.hasOwnProperty.call(this._data, filepath) &&
-      (field == null || Object.prototype.hasOwnProperty.call(this._data[filepath].data, field));
-  }
+    return has(this._data, filepath) &&
+      (field == null || has(this._data[filepath].data, field));
+  },
 
   set(filepath, field, loaderPromise) {
     let record = this._data[filepath];
@@ -130,7 +104,7 @@ class Cache {
       });
 
     return record.data[field];
-  }
+  },
 
   _persistCache() {
     if (this._persisting != null) {
@@ -195,7 +169,7 @@ class Cache {
     });
 
     return this._persisting;
-  }
+  },
 
   _loadCacheSync(cachePath) {
     var ret = Object.create(null);
@@ -221,7 +195,54 @@ class Cache {
     });
 
     return ret;
-  }
+  },
+})
+
+type.defineStatics({
+
+  getCacheFilePath(tmpdir, ...args) {
+    const hash = crypto.createHash('md5');
+    args.forEach(arg => hash.update(arg));
+    return fp.join(tmpdir, hash.digest('hex'));
+  },
+
+  loadCacheSync(cachePath) {
+    if (!fs.sync.exists(cachePath)) {
+      return Object.create(null);
+    }
+
+    try {
+      return JSON.parse(fs.sync.read(cachePath));
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        console.warn('Unable to parse cache file. Will clear and continue.');
+        try {
+          fs.sync.remove(cachePath);
+        } catch (err) {
+          // Someone else might've deleted it.
+        }
+        return Object.create(null);
+      }
+      throw e;
+    }
+  },
+})
+
+const Cache = type.build();
+module.exports = Cache;
+
+//
+// Helpers
+//
+
+function getObjectValues(object) {
+  return Object.keys(object).map(key => object[key]);
 }
 
-module.exports = Cache;
+function debounce(fn, delay) {
+  var timeout;
+  return () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(fn, delay);
+  };
+}

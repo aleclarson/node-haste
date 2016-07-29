@@ -1,4 +1,4 @@
- /**
+/**
  * Copyright (c) 2015-present, Facebook, Inc.
  * All rights reserved.
  *
@@ -9,7 +9,12 @@
 'use strict';
 
 const Promise = require('Promise');
+const Type = require('Type');
+const emptyFunction = require('emptyFunction');
+const fromArgs = require('fromArgs');
 
+const Fastfs = require('./fastfs');
+const ModuleCache = require('./ModuleCache');
 const fp = require('./fastpath');
 const matchExtensions = require('./utils/matchExtensions');
 const getPlatformExtension = require('./utils/getPlatformExtension');
@@ -18,22 +23,35 @@ const GENERIC_PLATFORM = 'generic';
 const NATIVE_PLATFORM = 'native';
 const PACKAGE_JSON = fp.sep + 'package.json';
 
-class HasteMap {
-  constructor({
-    projectExts,
-    fastfs,
-    moduleCache,
-    blacklist,
-    preferNativePlatform,
-    platforms,
-  }) {
-    this._projectExts = projectExts;
-    this._fastfs = fastfs;
-    this._moduleCache = moduleCache;
-    this._blacklist = blacklist;
-    this._preferNativePlatform = preferNativePlatform;
-    this._platforms = platforms;
-  }
+const type = Type('HasteMap')
+
+type.defineOptions({
+  projectExts: Array.isRequired,
+  fastfs: Fastfs.isRequired,
+  moduleCache: ModuleCache.isRequired,
+  blacklist: Function.withDefault(emptyFunction.thatReturnsFalse),
+  platforms: Array,
+  preferNativePlatform: Boolean,
+})
+
+type.defineValues({
+
+  _projectExts: fromArgs('projectExts'),
+
+  _fastfs: fromArgs('fastfs'),
+
+  _moduleCache: fromArgs('moduleCache'),
+
+  _blacklist: fromArgs('blacklist'),
+
+  _platforms: fromArgs('platforms'),
+
+  _preferNativePlatform: fromArgs('preferNativePlatform'),
+
+  _map: null,
+})
+
+type.defineMethods({
 
   build() {
     this._map = Object.create(null);
@@ -45,7 +63,7 @@ class HasteMap {
         return this._processHastePackage(filePath);
       }
     }).then(() => this._map);
-  }
+  },
 
   processFileChange(type, absPath) {
     return Promise.try(() => {
@@ -75,7 +93,7 @@ class HasteMap {
         }
       }
     });
-  }
+  },
 
   getModule(name, platform = null) {
     const modulesMap = this._map[name];
@@ -96,7 +114,7 @@ class HasteMap {
       module = modulesMap[GENERIC_PLATFORM];
     }
     return module;
-  }
+  },
 
   _processHasteModule(file) {
     const module = this._moduleCache.getModule(file);
@@ -104,7 +122,7 @@ class HasteMap {
       isHaste => isHaste && module.getName()
         .then(name => this._updateHasteMap(name, module))
     );
-  }
+  },
 
   _processHastePackage(file) {
     file = fp.resolve(file);
@@ -120,7 +138,7 @@ class HasteMap {
         }
         throw e;
       });
-  }
+  },
 
   _updateHasteMap(name, mod) {
     if (this._map[name] == null) {
@@ -141,15 +159,14 @@ class HasteMap {
       }
       throw new Error(
         `@providesModule naming collision:\n` +
-        `  Duplicate module name: ${name}\n` +
-        `  Paths: ${mod.path} collides with ${existingModule.path}\n\n` +
-        `This error is caused by a @providesModule declaration ` +
-        `with the same name across two different files.`
+        `  name:  ${name}\n` +
+        `  paths: ${mod.path}\n` +
+        `         ${existingModule.path}`
       );
     }
 
     moduleMap[modulePlatform] = mod;
-  }
-}
+  },
+})
 
-module.exports = HasteMap;
+module.exports = type.build()

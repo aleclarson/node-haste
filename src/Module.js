@@ -8,51 +8,67 @@
  */
 'use strict';
 
-const jsonStableStringify = require('json-stable-stringify');
-const emptyFunction = require('emptyFunction');
+const Cache = require('./Cache');
+const Fastfs = require('./fastfs');
+const ModuleCache = require('./ModuleCache');
 const Promise = require('Promise');
-const inArray = require('in-array');
+const PureObject = require('PureObject');
+const Resolver = require('./Resolver');
+const Type = require('Type');
+
+const assert = require('assert');
 const crypto = require('crypto');
+const docblock = require('./utils/docblock');
+const emptyFunction = require('emptyFunction');
+const extractRequires = require('./utils/extractRequires');
+const fp = require('./fastpath');
+const fromArgs = require('fromArgs');
+const inArray = require('in-array');
+const jsonStableStringify = require('json-stable-stringify');
 const sync = require('sync');
 
-const fp = require('./fastpath');
-const docblock = require('./utils/docblock');
-const extractRequires = require('./utils/extractRequires');
+const type = Type('Module')
 
-class Module {
+type.defineOptions({
+  file: String.isRequired,
+  fastfs: Fastfs,
+  moduleCache: ModuleCache,
+  cache: Cache,
+  extractor: Function.withDefault(extractRequires),
+  transformCode: Function,
+  options: Object,
+})
 
-  constructor({
-    file,
-    fastfs,
-    moduleCache,
-    cache,
-    extractor = extractRequires,
-    transformCode,
-    options,
-  }) {
-    if (file[0] === '.') {
-      throw Error('Path cannot be relative: ' + file);
-    }
+type.initArguments(([options]) => {
+  assert(!options.file.startsWith('.'), '\'options.file\' cannot be relative: ' + options.file);
+})
 
-    this.path = file;
-    this.type = 'Module';
+type.defineValues({
 
-    this._fastfs = fastfs;
-    this._moduleCache = moduleCache;
-    this._cache = cache;
-    this._extractor = extractor;
-    this._transformCode = transformCode;
-    this._options = options;
+  type: 'Module',
 
-    this._dependers = Object.create(null);
-    this._dependencies = Object.create(null);
-  }
+  path: fromArgs('file'),
+
+  _fastfs: fromArgs('fastfs'),
+
+  _moduleCache: fromArgs('moduleCache'),
+
+  _cache: fromArgs('cache'),
+
+  _extractor: fromArgs('extractor'),
+
+  _transformCode: fromArgs('transformCode'),
+
+  _options: fromArgs('options'),
+})
+
+type.defineMethods({
 
   get(key, factory = emptyFunction) {
     const entry = fp.isAbsolute(this.path)
       ? this.path : fp.sep + 'stub' + fp.sep + this.path;
     return this._cache.get(entry, key, factory);
-  }
+  },
 
   isMain() {
     return this.get('isMain', () =>
@@ -62,7 +78,7 @@ class Module {
         .then(mainPath => this.path === mainPath);
       })
     );
-  }
+  },
 
   isHaste() {
     return this.get('isHaste', () =>
@@ -84,15 +100,15 @@ class Module {
         });
       })
     );
-  }
+  },
 
   getCode(transformOptions) {
     return this.read(transformOptions).then(({code}) => code);
-  }
+  },
 
   getMap(transformOptions) {
     return this.read(transformOptions).then(({map}) => map);
-  }
+  },
 
   getName() {
     return this.get('name', () =>
@@ -113,26 +129,16 @@ class Module {
             isMain ? name : fp.relative(lotus.path, this.path)));
       })
     )
-  }
+  },
 
   getPackage() {
     return this._moduleCache.getPackageForModule(this);
-  }
+  },
 
-  getDependencies(transformOptions) {
-    return this.read(transformOptions).then(({dependencies}) => dependencies);
-  }
-
-  getDependency(name) {
-    const hash = this.path + ':' + name;
-    return this._dependencies[hash];
-  }
-
-  setDependency(name, mod) {
-    const hash = this.path + ':' + name;
-    mod._dependers[hash] = this;
-    this._dependencies[hash] = mod;
-  }
+  readDependencies(transformOptions) {
+    return this.read(transformOptions)
+      .then(data => data.dependencies);
+  },
 
   read(transformOptions) {
     return this.get(
@@ -167,27 +173,27 @@ class Module {
         });
       }
     );
-  }
+  },
 
   hash() {
     return `Module : ${this.path}`;
-  }
+  },
 
   isJSON() {
     return fp.extname(this.path) === '.json';
-  }
+  },
 
   isAsset() {
     return false;
-  }
+  },
 
   isPolyfill() {
     return false;
-  }
+  },
 
   isNull() {
     return false;
-  }
+  },
 
   toJSON() {
     return {
@@ -198,7 +204,7 @@ class Module {
       type: this.type,
       path: this.path,
     };
-  }
+  },
 
   _parseDocBlock(docBlock) {
     // Extract an id for the module if it's using @providesModule syntax
@@ -214,7 +220,7 @@ class Module {
         ? /^\S+/.exec(provides)[0]
         : undefined;
     return {id, moduleDocBlock};
-  }
+  },
 
   _readDocBlock(contentPromise) {
     if (!this._docBlock) {
@@ -225,7 +231,7 @@ class Module {
         .then(docBlock => this._parseDocBlock(docBlock));
     }
     return this._docBlock;
-  }
+  },
 
   // We don't want 'node_modules' to be haste paths
   // unless the package is a watcher root.
@@ -238,39 +244,14 @@ class Module {
       return true;
     }
     return inArray(this._fastfs._roots, pkg.root);
-  }
+  },
+})
 
-  _processFileChange(type) {
-    this._cache.invalidate(this.path);
-    this._moduleCache.removeModule(this.path);
+module.exports = type.build()
 
-    // Any old dependencies should NOT have this Module
-    // in their `_dependers` hash table.
-    sync.each(this._dependencies, (mod, hash) => {
-      delete mod._dependers[hash];
-    });
-
-    if (type === 'delete') {
-
-      // Catch other Modules still depending on this deleted Module.
-      sync.each(this._dependers, (mod, hash) => {
-        delete mod._dependencies[hash];
-      });
-
-    } else {
-
-      // Force the ModuleCache to regenerate this Module.
-      let newModule = this._moduleCache.getModule(this.path);
-
-      // Force any Modules (that depend on the old Module)
-      // to depend on the new Module.
-      sync.each(this._dependers, (mod, hash) => {
-        mod._dependencies[hash] = newModule;
-        newModule._dependers[hash] = mod;
-      });
-    }
-  }
-}
+//
+// Helpers
+//
 
 function whileInDocBlock(chunk, i, result) {
   // consume leading whitespace
@@ -306,5 +287,3 @@ function cacheKey(field, transformOptions) {
       ? stableObjectHash(transformOptions) + '\0' + field
       : field;
 }
-
-module.exports = Module;

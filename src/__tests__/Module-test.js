@@ -63,7 +63,7 @@ describe('Module', () => {
   });
 
   const createModule = (options) =>
-    new Module({
+    Module({
       options: {
         cacheTransformResults: true,
       },
@@ -80,12 +80,12 @@ describe('Module', () => {
   beforeEach(function(done) {
     process.platform = 'linux';
     cache = createCache();
-    fastfs = new Fastfs(
-      'test',
-      ['/root'],
+    fastfs = new Fastfs({
+      name: 'test',
+      roots: ['/root'],
       fileWatcher,
-      {crawling: Promise([fileName, '/root/package.json']), ignore: []},
-    );
+      crawling: Promise([fileName, '/root/package.json']),
+    });
 
     fastfs.build().then(done);
   });
@@ -213,7 +213,7 @@ describe('Module', () => {
         extractor: code => ({deps: {sync: ['foo', 'bar']}}),
       });
 
-      return module.getDependencies().then(actual =>
+      return module.readDependencies().then(actual =>
         expect(actual).toEqual(['foo', 'bar']));
     });
 
@@ -225,7 +225,7 @@ describe('Module', () => {
       `);
 
       const module = createModule();
-      return module.getDependencies().then(dependencies =>
+      return module.readDependencies().then(dependencies =>
         expect(dependencies.sort())
           .toEqual(['dependency-a', 'dependency-b', 'dependency-c'])
       );
@@ -242,7 +242,7 @@ describe('Module', () => {
       `);
 
       const module = createModule();
-      return module.getDependencies().then(dependencies =>
+      return module.readDependencies().then(dependencies =>
         expect(dependencies).toEqual([])
       );
     });
@@ -250,7 +250,7 @@ describe('Module', () => {
     pit('does not extract dependencies from JSON files', () => {
       mockPackageFile();
       const module = createJSONModule();
-      return module.getDependencies().then(dependencies =>
+      return module.readDependencies().then(dependencies =>
         expect(dependencies).toEqual([])
       );
     });
@@ -339,7 +339,7 @@ describe('Module', () => {
       transformCode.mockReturnValue(Promise({code: exampleCode}));
       const module = createModule({transformCode});
 
-      return module.getDependencies().then(dependencies => {
+      return module.readDependencies().then(dependencies => {
         expect(dependencies).toEqual(['a', 'c']);
       });
     });
@@ -352,7 +352,7 @@ describe('Module', () => {
       }));
       const module = createModule({transformCode});
 
-      return module.getDependencies().then(dependencies => {
+      return module.readDependencies().then(dependencies => {
         expect(dependencies).toEqual(mockedDependencies);
       });
     });
@@ -451,24 +451,24 @@ describe('Module', () => {
 
       it('gets dependencies from the cache with the same cache key for the same transform options', () => {
         const options = {some: 'options'};
-        module.getDependencies(options); // first call
-        module.getDependencies(options); // second call
+        module.readDependencies(options); // first call
+        module.readDependencies(options); // second call
 
         const {calls} = cache.get.mock;
         callsEqual(calls[0], calls[1]);
       });
 
       it('gets dependencies from the cache with the same cache key for the equivalent transform options', () => {
-        module.getDependencies({a: 'b', c: 'd'}); // first call
-        module.getDependencies({c: 'd', a: 'b'}); // second call
+        module.readDependencies({a: 'b', c: 'd'}); // first call
+        module.readDependencies({c: 'd', a: 'b'}); // second call
 
         const {calls} = cache.get.mock;
         callsEqual(calls[0], calls[1]);
       });
 
       it('gets dependencies from the cache with different cache keys for different transform options', () => {
-        module.getDependencies({some: 'options'});
-        module.getDependencies({other: 'arbitrary options'});
+        module.readDependencies({some: 'options'});
+        module.readDependencies({other: 'arbitrary options'});
         const {calls} = cache.get.mock;
         expect(calls[0][1]).not.toEqual(calls[1][1]);
       });

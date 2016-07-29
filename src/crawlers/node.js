@@ -1,6 +1,6 @@
 'use strict';
 
-const debug = require('debug')('ReactNativePackager:DependencyGraph');
+const debug = require('debug')('NodeHaste:NodeCrawler');
 
 const fp = require('../fastpath');
 const fs = require('io');

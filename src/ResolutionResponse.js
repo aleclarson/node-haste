@@ -1,4 +1,4 @@
- /**
+/**
  * Copyright (c) 2015-present, Facebook, Inc.
  * All rights reserved.
  *
@@ -8,110 +8,170 @@
  */
 'use strict';
 
+const assert = require('assert');
+const fromArgs = require('fromArgs');
+const sync = require('sync');
 const Promise = require('Promise');
+const PureObject = require('PureObject');
+const Type = require('Type');
 
-class ResolutionResponse {
-  constructor({transformOptions}) {
-    this.transformOptions = transformOptions;
-    this.dependencies = [];
-    this.mainModuleId = null;
-    this.mocks = null;
-    this.numPrependedDependencies = 0;
-    this._mappings = Object.create(null);
-    this._finalized = false;
-    this._finalizeCallbacks = [];
-  }
+const AsyncTaskGroup = require('./utils/AsyncTaskGroup');
+const Resolution = require('./Resolution');
 
-  copy(properties) {
-    const {
-      dependencies = this.dependencies,
-      mainModuleId = this.mainModuleId,
-      mocks = this.mocks,
-    } = properties;
+const type = Type('ResolutionResponse')
 
-    const numPrependedDependencies = dependencies === this.dependencies
-      ? this.numPrependedDependencies : 0;
+type.defineOptions({
+  transformOptions: Object,
+})
 
-    return Object.assign(
-      new this.constructor({transformOptions: this.transformOptions}),
-      this,
-      {
-        dependencies,
-        mainModuleId,
-        mocks,
-        numPrependedDependencies,
-      },
-    );
-  }
+type.defineValues({
 
-  _assertNotFinalized() {
-    if (this._finalized) {
-      throw new Error('Attempted to mutate finalized response.');
+  mainModuleId: null,
+
+  dependencies: null,
+
+  numPrependedDependencies: 0,
+
+  _mainModule: null,
+
+  _updating: null,
+
+  _dependers: () => new Map(),
+
+  _resolutions: () => new Map(),
+
+  _transformOptions: fromArgs('transformOptions'),
+})
+
+type.defineMethods({
+
+  hasResolution(module) {
+    return this._resolutions.has(module);
+  },
+
+  getResolution(module, config) {
+    let resolution = this._resolutions.get(module);
+    if (!resolution && config) {
+      resolution = this._createResolution(module, config);
+      if (this.dependencies) {
+        this.dependencies.push(module);
+      } else {
+        this.dependencies = [module];
+        this._mainModule = module;
+      }
     }
-  }
+    return resolution;
+  },
 
-  _assertFinalized() {
-    if (!this._finalized) {
-      throw new Error('Attempted to access unfinalized response.');
-    }
-  }
-
-  finalize() {
-    return this._mainModule.getName()
-    .then(id => {
-      this.mainModuleId = id;
-      this._finalized = true;
-      process.nextTick(() => {
-        this._finalizeCallbacks.forEach(callback => callback(this));
-        this._finalizeCallbacks = null;
-      });
-      return this;
+  getInverseDependencies(module) {
+    return this._onceUpdated(() => {
+      if (module) {
+        return this._dependers[module.path] || new Set();
+      } else {
+        const dependers = new Map();
+        sync.each(this._dependers, (dependers, modulePath) => {
+          const module =
+          dependers.set(dependency, dependers);
+        });
+        return dependencies;
+      }
     });
-  }
+  },
 
-  onFinalize(callback) {
-    if (this._finalized) {
-      return callback ? callback(this) : Promise(this);
-    } else if (callback) {
-      this._finalizeCallbacks.push(callback);
-    } else {
-      const {promise, resolve} = Promise.defer();
-      this._finalizeCallbacks.push(resolve);
-      return promise;
-    }
-  }
-
-  pushDependency(module) {
-    this._assertNotFinalized();
-    if (this.dependencies.length === 0) {
-      this._mainModule = module;
+  copy({
+    dependencies = this.dependencies,
+    numPrependedDependencies = 0,
+  }) {
+    if (dependencies === this.dependencies) {
+      numPrependedDependencies = this.numPrependedDependencies;
     }
 
-    this.dependencies.push(module);
-  }
+    const copy = ResolutionResponse();
+    return Object.assign(copy, {
+      dependencies,
+      numPrependedDependencies,
+      mainModuleId: this.mainModuleId,
+      _mainModule: this._mainModule,
+      _updating: this._updating,
+      _dependers: this._dependers,
+      _resolutions: this._resolutions,
+      _transformOptions: this._transformOptions,
+    });
+  },
 
-  prependDependency(module) {
-    this._assertNotFinalized();
-    this.dependencies.unshift(module);
-    this.numPrependedDependencies += 1;
-  }
+  onceReady(callback) {
+    return this._onceUpdated(() => {
+      assert(this._mainModule, 'Must have at least one dependency!');
+      return this._mainModule
+        .getName()
+        .then(name => {
+          this.mainModuleId = name;
+          return this;
+        })
+        .then(callback);
+    });
+  },
 
-  setResolvedDependencyPairs(module, pairs) {
-    this._assertNotFinalized();
-    const hash = module.hash();
-    if (this._mappings[hash] == null) {
-      this._mappings[hash] = pairs;
+  _createResolution(module, config) {
+    const resolution = Resolution(module, config);
+    this._resolutions.set(module, resolution);
+    return resolution;
+  },
+
+  _removeResolution(module) {
+    const index = this.dependencies.indexOf(module);
+    if (index !== -1) {
+      this.dependencies.splice(index, 1);
+      delete this._resolutions[module.path];
     }
-  }
+  },
 
-  setMocks(mocks) {
-    this.mocks = mocks;
-  }
+  _addDepender(module, depender) {
+    let dependers = this._dependers.get(module);
+    if (!dependers) {
+      dependers = new Set();
+      this._dependers.set(module, dependers);
+    }
+    dependers.add(depender);
+  },
 
-  getResolvedDependencyPairs(module) {
-    this._assertFinalized();
-    return this._mappings[module.hash()];
-  }
-}
+  _removeDependers(module) {
+    const dependers = this._dependers.get(module);
+    if (dependers) {
+      this._dependers.delete(module);
+      dependers.forEach(depender => {
+        const resolution = this._resolutions[depender.path];
+        if (resolution) {
+          resolution.invalidatePath(module.path);
+        } else {
+          console.warn(`Missing depender: '${depender.path}'`);
+        }
+      });
+    }
+  },
+
+  _onceUpdated(callback) {
+    return (this._updating ?
+      this._updating.done : Promise()).then(callback);
+  },
+
+  _beginUpdate(resolution) {
+    if (!this._updating) {
+      this._updating = new AsyncTaskGroup();
+      this._updating.done.then(() => {
+        this._updating = null;
+      });
+    }
+    this._updating.start(resolution);
+  },
+
+  _endUpdate(resolution) {
+    if (this._updating) {
+      this._updating.end(resolution);
+    }
+  },
+})
+
+const ResolutionResponse = type.build();
 
 module.exports = ResolutionResponse;

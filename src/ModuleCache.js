@@ -1,67 +1,90 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ */
 'use strict';
 
-const AssetModule = require('./AssetModule');
-const Module = require('./Module');
-const NullModule = require('./NullModule');
-const Package = require('./Package');
-const Polyfill = require('./Polyfill');
+const Cache = require('./Cache');
+const Fastfs = require('./fastfs');
+const LazyVar = require('LazyVar');
+const PureObject = require('PureObject');
+const Type = require('Type');
+const assertType = require('assertType');
 const fp = require('./fastpath');
+const fromArgs = require('fromArgs');
 
-class ModuleCache {
+const AssetModule = LazyVar(() => require('./AssetModule'));
+const Module = LazyVar(() => require('./Module'));
+const NullModule = LazyVar(() => require('./NullModule'));
+const Package = LazyVar(() => require('./Package'));
+const Polyfill = LazyVar(() => require('./Polyfill'));
 
-  constructor({
-    fastfs,
-    cache,
-    extractRequires,
-    transformCode,
-    assetDependencies,
-    moduleOptions,
-  }, platforms) {
-    this._moduleCache = Object.create(null);
-    this._packageCache = Object.create(null);
-    this._fastfs = fastfs;
-    this._cache = cache;
-    this._extractRequires = extractRequires;
-    this._transformCode = transformCode;
-    this._platforms = platforms;
-    this._assetDependencies = assetDependencies;
-    this._moduleOptions = moduleOptions;
-    this._packageModuleMap = new WeakMap();
+const type = Type('ModuleCache')
 
-    fastfs.on('change', this._processFileChange.bind(this));
-  }
+type.defineOptions({
+  cache: Cache.isRequired,
+  fastfs: Fastfs.isRequired,
+  platforms: Array,
+  extractRequires: Function,
+  transformCode: Function,
+  assetDependencies: Array,
+  moduleOptions: Object,
+  extraNodeModules: Object,
+  redirect: PureObject,
+})
+
+type.defineValues({
+
+  _modules: PureObject.create,
+
+  _packages: PureObject.create,
+
+  _packageModuleMap: () => new WeakMap(),
+
+  _cache: fromArgs('cache'),
+
+  _fastfs: fromArgs('fastfs'),
+
+  _platforms: fromArgs('platforms'),
+
+  _extractRequires: fromArgs('extractRequires'),
+
+  _transformCode: fromArgs('transformCode'),
+
+  _assetDependencies: fromArgs('assetDependencies'),
+
+  _moduleOptions: fromArgs('moduleOptions'),
+
+  _extraNodeModules: fromArgs('extraNodeModules'),
+
+  _redirect: (opts) => opts.redirect || Object.create(null),
+})
+
+type.initInstance(function({ fastfs }) {
+  fastfs.on('change', this._processFileChange.bind(this));
+})
+
+type.defineMethods({
 
   getAllModules() {
-    return this._moduleCache;
-  }
+    return this._modules;
+  },
 
-  getCachedModule(filePath) {
-    return this._moduleCache[
-      filePath.toLowerCase()
+  getCachedModule(modulePath) {
+    return this._modules[
+      modulePath.toLowerCase()
     ];
-  }
+  },
 
-  getModule(filePath) {
-    const hash = filePath.toLowerCase();
-    if (!this._moduleCache[hash]) {
-      this._moduleCache[hash] = new Module({
-        file: filePath,
-        fastfs: this._fastfs,
-        moduleCache: this,
-        cache: this._cache,
-        extractor: this._extractRequires,
-        transformCode: this._transformCode,
-        options: this._moduleOptions,
-      });
-    }
-    return this._moduleCache[hash];
-  }
-
-  getNullModule(modulePath) {
-    const hash = modulePath.toLowerCase();
-    let module = this._moduleCache[hash];
-    if (!module || !module.isNull()) {
-      this._moduleCache[hash] = new NullModule({
+  getModule(modulePath) {
+    return this._getModule(
+      modulePath,
+      this._modules,
+      () => Module.call({
         file: modulePath,
         fastfs: this._fastfs,
         moduleCache: this,
@@ -69,43 +92,59 @@ class ModuleCache {
         extractor: this._extractRequires,
         transformCode: this._transformCode,
         options: this._moduleOptions,
-      });
-    }
-    return this._moduleCache[hash];
-  }
+      })
+    );
+  },
 
-  getAssetModule(filePath) {
-    const hash = filePath.toLowerCase();
-    if (!this._moduleCache[hash]) {
-      this._moduleCache[hash] = new AssetModule({
-        file: filePath,
+  getNullModule(modulePath) {
+    return this._getModule(
+      modulePath,
+      this._modules,
+      () => NullModule.call({
+        file: modulePath,
+        fastfs: this._fastfs,
+        moduleCache: this,
+        cache: this._cache,
+        extractor: this._extractRequires,
+        transformCode: this._transformCode,
+        options: this._moduleOptions,
+      })
+    );
+  },
+
+  getAssetModule(modulePath) {
+    return this._getModule(
+      modulePath,
+      this._modules,
+      () => AssetModule.call({
+        file: modulePath,
         fastfs: this._fastfs,
         moduleCache: this,
         cache: this._cache,
         dependencies: this._assetDependencies,
-      }, this._platforms);
-    }
-    return this._moduleCache[hash];
-  }
+        platforms: this._platforms,
+      })
+    );
+  },
 
-  getPackage(filePath) {
-    const hash = filePath.toLowerCase();
-    if (!this._packageCache[hash]) {
-      this._packageCache[hash] = new Package({
-        file: filePath,
+  getPackage(packagePath) {
+    return this._getModule(
+      packagePath,
+      this._packages,
+      () => Package.call({
+        file: packagePath,
         fastfs: this._fastfs,
         moduleCache: this,
         cache: this._cache,
-      });
-    }
-    return this._packageCache[hash];
-  }
+      })
+    );
+  },
 
   getPackageForModule(module) {
     if (this._packageModuleMap.has(module)) {
       const packagePath = this._packageModuleMap.get(module);
-      if (this._packageCache[packagePath]) {
-        return this._packageCache[packagePath];
+      if (this._packages[packagePath]) {
+        return this._packages[packagePath];
       } else {
         this._packageModuleMap.delete(module);
       }
@@ -118,41 +157,57 @@ class ModuleCache {
 
     this._packageModuleMap.set(module, packagePath);
     return this.getPackage(packagePath);
-  }
+  },
 
   createPolyfill({file}) {
-    return new Polyfill({
+    return Polyfill.call({
       file,
       cache: this._cache,
-      depGraphHelpers: this._depGraphHelpers,
       fastfs: this._fastfs,
       moduleCache: this,
       transformCode: this._transformCode,
     });
-  }
+  },
 
-  removeModule(filePath) {
-    delete this._moduleCache[
-      filePath.toLowerCase()
+  removeModule(modulePath) {
+    delete this._modules[
+      modulePath.toLowerCase()
     ];
-  }
+  },
 
-  removePackage(filePath) {
-    delete this._packageCache[
-      filePath.toLowerCase()
+  removePackage(packagePath) {
+    delete this._packages[
+      packagePath.toLowerCase()
     ];
-  }
+  },
+
+  _getModule(modulePath, moduleCache, createModule) {
+    const hash = modulePath.toLowerCase();
+    let module = moduleCache[hash];
+    if (!module) {
+      module = createModule();
+      moduleCache[hash] = module;
+    }
+    return module;
+  },
 
   _processFileChange(type, filePath, root) {
     const absPath = fp.join(root, filePath);
-
-    if (this._moduleCache[absPath]) {
-      this._moduleCache[absPath]._processFileChange(type);
+    const mod = this._modules[absPath];
+    const pkg = this._packages[absPath];
+    if (mod) {
+      this._cache.invalidate(mod.path);
+      if (type === 'delete') {
+        this.removeModule(mod);
+      }
     }
-    if (this._packageCache[absPath]) {
-      this._packageCache[absPath]._processFileChange(type);
+    if (pkg) {
+      this._cache.invalidate(pkg.path);
+      if (type === 'delete') {
+        this.removePackage(pkg);
+      }
     }
-  }
-}
+  },
+})
 
-module.exports = ModuleCache;
+module.exports = type.build()

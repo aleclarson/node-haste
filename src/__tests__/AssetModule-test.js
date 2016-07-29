@@ -16,13 +16,13 @@ describe('AssetModule:', () => {
   const defaults = {file: '/arbitrary'};
 
   pit('has no dependencies by default', () => {
-    return new AssetModule(defaults).getDependencies()
+    return new AssetModule(defaults).readDependencies()
       .then(deps => expect(deps).toEqual([]));
   });
 
   pit('can be parametrized with dependencies', () => {
     const dependencies = ['arbitrary', 'dependencies'];
-    return new AssetModule({...defaults, dependencies}).getDependencies()
+    return new AssetModule({...defaults, dependencies}).readDependencies()
       .then(deps => expect(deps).toEqual(dependencies));
   });
 });
