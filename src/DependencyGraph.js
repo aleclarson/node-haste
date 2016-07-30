@@ -26,6 +26,7 @@ const Fastfs = require('./fastfs');
 const FileWatcher = require('./FileWatcher');
 const HasteMap = require('./HasteMap');
 const ModuleCache = require('./ModuleCache');
+const ResolutionCache = require('./ResolutionCache');
 const ResolutionResponse = require('./ResolutionResponse');
 
 const crawl = require('./crawlers');
@@ -57,7 +58,7 @@ type.defineOptions({
   assetDependencies: Array,
   moduleOptions: Object,
   extraNodeModules: Object,
-  onResolutionError: Function,
+  onResolutionError: Function.withDefault(emptyFunction),
 })
 
 type.defineValues({
@@ -227,46 +228,49 @@ type.defineMethods({
     })
     mergeDefaults(options, {
       recursive: true,
-      verbose: false,
     })
-    return this.load().then(() => {
-      const {transformOptions, recursive} = options;
-      const platform = this._getRequestPlatform(options.entryFile, options.platform);
-      const entryFile =
-        fp.isAbsolute(options.entryFile) ?
-          fp.resolve(options.entryFile) :
-          fp.join(process.cwd(), options.entryFile);
 
+    return this.load().then(() => {
+      const entryFile = this._resolveEntryFile(options.entryFile);
+      const platform = this._getRequestPlatform(entryFile, options.platform);
+      const onError = this._catchResolutionErrors(options.onError);
+      const {recursive, onProgress} = options;
+
+      // Check for a cached ResolutionResponse!
       const responseId = JSON.stringify({entryFile, platform, recursive});
       let response = this._responseCache[responseId];
       if (response) {
-        return response;
+        return response.allResolved({
+          onError,
+          onProgress: options.onProgress,
+        });
       }
 
-      response = ResolutionResponse({transformOptions});
-      this._responseCache[responseId] = response;
-
-      const entry = this._moduleCache.getModule(entryFile);
-      const resolution = response.getResolution(entry, {
+      // Create a new ResolutionCache for every new ResolutionResponse.
+      const cache = ResolutionCache({
         platform,
         preferNativePlatform: this._preferNativePlatform,
+        transformOptions: options.transformOptions,
         extensions: this._projectExts,
-        fastfs: this._fastfs,
         assetMap: this._assetMap,
         hasteMap: this._hasteMap,
+        fastfs: this._fastfs,
       });
 
-      const onError = options.onError || emptyFunction;
-      return resolution._updateResponse(response, {
+      // Cache a new ResolutionResponse.
+      this._responseCache[responseId] =
+        response = ResolutionResponse({cache});
+
+      // Starting with the 'entryFile', resolve the
+      // dependencies of every module needed by the bundle.
+      const entry = this._moduleCache.getModule(entryFile);
+      const resolution = cache.getResolution(entry);
+      return resolution.reloadRequires({
         recursive,
-        onProgress: options.onProgress,
-        onError: (...args) => {
-          const result = onError.apply(null, args);
-          if (result !== false) {
-            this._onResolutionError.apply(null, args);
-          }
-        },
-      });
+        onError,
+        onProgress,
+      })
+      .then(() => response.allResolved());
     });
   },
 
@@ -293,13 +297,28 @@ type.defineMethods({
       .concat(this._assetExts);
   },
 
-  _getRequestPlatform(entryPath, platform) {
+  _resolveEntryFile(entryFile) {
+    return fp.isAbsolute(entryFile) ?
+      fp.resolve(entryFile) :
+      fp.join(process.cwd(), entryFile)
+  },
+
+  _getRequestPlatform(entryFile, platform) {
     if (platform == null) {
-      platform = getPlatformExtension(entryPath, this._platforms);
+      platform = getPlatformExtension(entryFile, this._platforms);
     } else if (!inArray(this._platforms, platform)) {
       throw new Error('Unrecognized platform: ' + platform);
     }
     return platform;
+  },
+
+  _catchResolutionErrors(onError = emptyFunction) {
+    return (requiredPath, fromModule, resolution) => {
+      const unhandled = onError(requiredPath, fromModule, resolution);
+      if (unhandled !== false) {
+        this._onResolutionError(requiredPath, fromModule, resolution);
+      }
+    };
   },
 
   _processFileChange(type, filePath, root, fstat) {
@@ -310,17 +329,16 @@ type.defineMethods({
 
     const module = this._moduleCache.getCachedModule(absPath);
     module && sync.each(this._responseCache, (response, responseId) => {
-      const resolution = response.getResolution(module);
-      if (!resolution) {
+      if (!response.hasResolution(module)) {
         return;
       }
+      const resolution = response.getResolution(module);
       if (type === 'delete') {
-        response._removeDependers(module);
-        response._removeResolution(resolution);
+        resolution.unload();
       } else {
-        resolution._updateResponse(response, {
+        resolution.reloadRequires({
           recursive: JSON.parse(responseId).recursive,
-          onError: this._onResolutionError,
+          onError: this._onResolutionError.bind(this),
         });
       }
     });

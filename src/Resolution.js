@@ -14,6 +14,7 @@ const PureObject = require('PureObject');
 const Promise = require('Promise');
 const Type = require('Type');
 const assertType = require('assertType');
+const assertTypes = require('assertTypes');
 const emptyFunction = require('emptyFunction');
 const fromArgs = require('fromArgs');
 const fs = require('io/sync');
@@ -21,10 +22,8 @@ const inArray = require('in-array');
 const path = require('path');
 const util = require('util');
 
-const AssetMap = require('./AssetMap');
-const Fastfs = require('./fastfs');
-const HasteMap = require('./HasteMap');
 const Module = require('./Module');
+const ResolutionCache = require('./ResolutionCache');
 const fp = require('./fastpath');
 const resolveFileExtension = require('./utils/resolveFileExtension');
 const resolveFilePlatform = require('./utils/resolveFilePlatform');
@@ -32,22 +31,15 @@ const resolveFilePlatform = require('./utils/resolveFilePlatform');
 const type = Type('Resolution')
 
 type.argumentTypes = {
-  module: Module.isRequired,
-  config: {
-    platform: String,
-    preferNativePlatform: Boolean,
-    extensions: Array,
-    fastfs: Fastfs,
-    assetMap: AssetMap,
-    hasteMap: HasteMap,
-  },
+  module: Module.Kind,
+  cache: ResolutionCache,
 }
 
 type.defineValues({
 
   _module: fromArgs(0),
 
-  _config: fromArgs(1),
+  _cache: fromArgs(1),
 
   _moduleRequires: () => [],
 
@@ -66,21 +58,6 @@ type.defineGetters({
 })
 
 type.defineMethods({
-
-  invalidatePath(modulePath) {
-    return this._allResolved.then(() => {
-      const index = this._modulePaths.indexOf(modulePath);
-      if (index !== -1) {
-        this._modulePaths[index] = null;
-        const requiredPath = this._moduleRequires[index];
-        this._abortModule(requiredPath);
-        log.moat(1);
-        log.yellow('Resolution.invalidatePath()');
-        log.format({index, modulePath, requiredPath});
-        log.moat(1);
-      }
-    });
-  },
 
   allResolved(callback) {
     return (this._allResolved || Promise([])).then(callback);
@@ -104,65 +81,102 @@ type.defineMethods({
     .then(() => results);
   },
 
-  _updateResponse(response, options) {
-    return this._module.readDependencies(response._transformOptions)
+  reloadRequires(options) {
+    assertTypes(options, {
+      force: Boolean.Maybe,
+      recursive: Boolean.Maybe,
+      onError: Function.Maybe,
+      onProgress: Function.Maybe,
+    })
+    const needsResolving = this._cache.markResolving(this);
+    if (!needsResolving) {
+      return this._allResolved;
+    }
+    return this._module.readDependencies(this._cache.transformOptions)
     .then(moduleRequires => {
-      if (moduleRequires === this._moduleRequires) {
-        return response;
+      if (!options.force && moduleRequires === this._moduleRequires) {
+        return this._allResolved;
       }
-      response._beginUpdate(this);
-      const onProgress = options.onProgress || emptyFunction;
       return this._resolveRequires(moduleRequires, options.onError)
       .then(moduleDeps => {
         return Promise.chain(moduleDeps, (moduleDep) => {
           if (!moduleDep) {
             return;
           }
-          response._addDepender(moduleDep, this._module);
-          if (options.recursive) {
-            // Only recursively update the response
-            // if the dependency is a new module.
-            return response.hasResolution(moduleDep) ||
-              response.getResolution(moduleDep, this._config)
-                ._updateResponse(response, options);
+          this._cache.addDepender(moduleDep, this._module);
+
+          // Only recursively update if the dependency is a new module.
+          if (options.recursive && !this._cache.hasResolution(moduleDep)) {
+            return this._cache
+              .getResolution(moduleDep)
+              .reloadRequires(options);
           }
         })
-        .then(() => {
-          onProgress(moduleDeps, this);
-          response._endUpdate(this);
-          return response;
-        });
+        .then(() => moduleDeps);
       });
+    })
+    .then(moduleDeps => {
+      options.onProgress && options.onProgress(moduleDeps, this);
+      this._cache.markResolved(this);
+      return moduleDeps;
     });
   },
 
-  // The 'onResolutionError' argument allows all
-  // 'modulePromises' to be resolved (even if a resolution error occurs).
-  _resolveRequires(moduleRequires, onResolutionError) {
-    assertType(moduleRequires, Array, 'moduleRequires');
-    if (moduleRequires === this._moduleRequires) {
-      return this._allResolved;
+  markDirty(modulePath) {
+    assertType(modulePath, String);
+    return this._allResolved.then(() => {
+      const index = this._modulePaths.indexOf(modulePath);
+      if (index !== -1) {
+        this._modulePaths[index] = null;
+        const requiredPath = this._moduleRequires[index];
+        this._markDirty(requiredPath);
+      }
+    });
+  },
+
+  unload() {
+    this._cache.clearDependers(this._module);
+    this._cache.deleteResolution(this);
+  },
+
+  _markDirty(requiredPath) {
+    const modulePromise = this._modulePromises[requiredPath];
+    if (modulePromise) {
+      modulePromise.isAborted = true;
+      delete this._modulePromises[requiredPath];
+      this._cache.markDirty(this);
     }
+  },
+
+  _resolveRequires(moduleRequires, onError) {
+    assertType(moduleRequires, Array, 'moduleRequires');
+    assertType(onError, Function.Maybe, 'onError');
 
     // Remove any promises associated with removed paths.
     const modulePromises = this._modulePromises;
     this._moduleRequires.forEach((requiredPath, index) => {
       if (!inArray(moduleRequires, requiredPath)) {
-        delete modulePromises[requiredPath];
+        const modulePromise = modulePromises[requiredPath];
+        if (modulePromise) {
+          modulePromise.then(module =>
+            this._cache.deleteDepender(module, this._module));
+          delete modulePromises[requiredPath];
+        }
       }
     });
 
     this._moduleRequires = moduleRequires;
     this._modulePaths = [];
 
+    const moduleDeps = [];
     const modulePaths = this._modulePaths;
-    return this._allResolved = Promise.map(moduleRequires, (requiredPath, index) => {
+    return this._allResolved = Promise.chain(moduleRequires, (requiredPath, index) => {
       let modulePromise = modulePromises[requiredPath];
       if (!modulePromise) {
         modulePromise = this._resolveModule(requiredPath);
-        onResolutionError && modulePromise.fail(error => {
+        onError && modulePromise.fail(error => {
           if (error.type === 'UnableToResolveError') {
-            onResolutionError(requiredPath, this._module, this);
+            onError(requiredPath, this._module, this);
           }
         });
       }
@@ -170,15 +184,17 @@ type.defineMethods({
         if (!modulePromise.isAborted) {
           modulePaths[index] = dependency.path;
         }
+        moduleDeps.push(dependency);
         return dependency;
       })
       .fail(error => {
         if (error.type === 'UnableToResolveError') {
-          this._abortModule(requiredPath);
+          this._markDirty(requiredPath);
         }
       });
       return modulePromises[requiredPath] = modulePromise;
-    });
+    })
+    .then(() => moduleDeps);
   },
 
   _resolveModule(requiredPath) {
@@ -192,7 +208,7 @@ type.defineMethods({
       requiredPath = redirectedPath;
 
       return Promise.try(() =>
-        this._resolveAssetDependency(requiredPath))
+        this._resolveAssetModule(requiredPath))
 
       .fail(error =>
         ignoreResolveErrors(error) &&
@@ -208,8 +224,8 @@ type.defineMethods({
     });
   },
 
-  _resolveAssetDependency(requiredPath) {
-    const {assetMap, platform} = this._config;
+  _resolveAssetModule(requiredPath) {
+    const {assetMap, platform} = this._cache;
     const assetPath = assetMap.resolve(requiredPath, platform);
     if (assetPath) {
       return this._moduleCache.getAssetModule(assetPath);
@@ -219,11 +235,11 @@ type.defineMethods({
   },
 
   _resolveHasteModule(requiredPath) {
-    if (!this._isModuleName(requiredPath)) {
+    if (!isModuleName(requiredPath)) {
       throw new UnableToResolveError();
     }
 
-    const {hasteMap, platform} = this._config;
+    const {hasteMap, platform} = this._cache;
     const moduleName = normalizePath(requiredPath);
 
     let dep = hasteMap.getModule(moduleName, platform);
@@ -264,7 +280,7 @@ type.defineMethods({
   },
 
   _resolveLotusModule(requiredPath) {
-    return this._resolveLotusFilePath(requiredPath)
+    return this._resolveLotusFile(requiredPath)
     .then(filePath => {
       if (typeof filePath === 'string') {
         return this._moduleCache.getModule(filePath);
@@ -276,7 +292,7 @@ type.defineMethods({
 
   _resolveNodeModule(requiredPath) {
 
-    if (!this._isModuleName(requiredPath)) {
+    if (!isModuleName(requiredPath)) {
       throw new UnableToResolveError();
     }
 
@@ -332,14 +348,6 @@ type.defineMethods({
     return promise;
   },
 
-  _abortModule(requiredPath) {
-    const modulePromise = this._modulePromises[requiredPath];
-    if (modulePromise) {
-      modulePromise.isAborted = true;
-      delete this._modulePromises[requiredPath];
-    }
-  },
-
   _resolvePackageMain(dirPath) {
     const pkgPath = fp.join(dirPath, 'package.json');
     if (this._fileExists(pkgPath)) {
@@ -348,11 +356,11 @@ type.defineMethods({
     return Promise(fp.join(dirPath, 'index'));
   },
 
-  _resolveFilePath(filePath, resolver) {
-    const {platform, preferNativePlatform} = this._config;
+  _resolveFile(filePath, resolver) {
+    const {platform, preferNativePlatform} = this._cache;
     return resolveFileExtension(
       filePath,
-      this._config.extensions,
+      this._cache.extensions,
       (filePath) => resolveFilePlatform(
         filePath,
         platform,
@@ -362,7 +370,7 @@ type.defineMethods({
     );
   },
 
-  _resolveLotusFilePath: Promise.wrap(function(requiredPath) {
+  _resolveLotusFile: Promise.wrap(function(requiredPath) {
 
     // Convert relative paths to absolutes.
     const isRelative = requiredPath[0] === '.';
@@ -379,7 +387,7 @@ type.defineMethods({
 
       if (isRelative) {
         // Try coercing './MyClass' into './MyClass/index'
-        const indexPath = this._resolveFilePath(
+        const indexPath = this._resolveFile(
           requiredPath + '/index',
           (filePath) => lotus.resolve(filePath, this._module.path),
         );
@@ -391,21 +399,21 @@ type.defineMethods({
       // Search for a 'package.json' and get its 'main' field.
       return this._resolvePackageMain(requiredPath)
       .then(mainPath =>
-        this._resolveFilePath(
+        this._resolveFile(
           mainPath,
           (filePath) => lotus.resolve(filePath, this._module.path),
         ));
     }
 
     // Try the module path as-is.
-    return this._resolveFilePath(
+    return this._resolveFile(
       requiredPath,
       (filePath) => lotus.resolve(filePath, this._module.path),
     );
   }),
 
   _loadAsFile(filePath, toModule) {
-    const result = this._resolveFilePath(filePath, (filePath) => {
+    const result = this._resolveFile(filePath, (filePath) => {
       try {
         if (this._fileExists(filePath)) {
           return this._moduleCache.getModule(filePath);
@@ -432,7 +440,7 @@ type.defineMethods({
   },
 
   _fileExists(filePath) {
-    const {fastfs} = this._config;
+    const {fastfs} = this._cache;
     const root = fastfs._getRoot(filePath);
     if (root == null) {
       return false;
@@ -444,7 +452,7 @@ type.defineMethods({
   },
 
   _dirExists(filePath) {
-    const {fastfs} = this._config;
+    const {fastfs} = this._cache;
     const root = fastfs._getRoot(filePath);
     if (root == null) {
       return false;
@@ -453,11 +461,6 @@ type.defineMethods({
       return fs.isDir(filePath);
     }
     return fastfs.dirExists(filePath);
-  },
-
-  _isModuleName(filePath) {
-    const firstChar = filePath[0];
-    return firstChar !== '.' && firstChar !== fp.sep;
   },
 
   _toAbsolutePath(filePath) {
@@ -474,7 +477,7 @@ type.defineMethods({
         return requiredPath;
       }
       const absPath = this._toAbsolutePath(requiredPath);
-      const resolver = this._resolveFilePath.bind(this);
+      const resolver = this._resolveFile.bind(this);
       return pkg.redirectRequire(absPath, resolver)
         .then(redirectedPath =>
           redirectedPath === absPath ?
@@ -495,6 +498,11 @@ module.exports = type.build()
 //
 // Helpers
 //
+
+function isModuleName(filePath) {
+  const firstChar = filePath[0];
+  return firstChar !== '.' && firstChar !== fp.sep;
+}
 
 function ignoreResolveErrors(error) {
  if (error.type !== 'UnableToResolveError') {

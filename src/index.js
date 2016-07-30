@@ -22,5 +22,4 @@ module.exports = {
   replacePatterns: require('./utils/replacePatterns'),
   getAssetDataFromName: require('./utils/getAssetDataFromName'),
   getPlatformExtension: require('./utils/getPlatformExtension'),
-  getInverseDependencies: require('./utils/getInverseDependencies'),
 };
