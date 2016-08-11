@@ -175,9 +175,11 @@ type.defineMethods({
       if (!modulePromise) {
         modulePromise = this._resolveModule(requiredPath);
         onError && modulePromise.fail(error => {
-          if (error.type === 'UnableToResolveError') {
-            onError(requiredPath, this._module, this);
-          }
+          onError(error, {
+            requiredPath,
+            fromModule: this._module,
+            resolution: this,
+          })
         });
       }
       modulePromise = modulePromise.then(dependency => {
@@ -207,20 +209,19 @@ type.defineMethods({
       }
       requiredPath = redirectedPath;
 
-      return Promise.try(() =>
-        this._resolveAssetModule(requiredPath))
+      return this._resolveAssetModule(requiredPath)
 
       .fail(error =>
         ignoreResolveErrors(error) &&
-        this._resolveHasteModule(requiredPath))
+        this._resolveHasteModule(requiredPath)
 
-      .fail(error =>
-        ignoreResolveErrors(error) &&
-        this._resolveLotusModule(requiredPath))
+        .fail(error =>
+          ignoreResolveErrors(error) &&
+          this._resolveLotusModule(requiredPath)
 
-      .fail(error =>
-        ignoreResolveErrors(error) &&
-        this._resolveNodeModule(requiredPath))
+          .fail(error =>
+            ignoreResolveErrors(error) &&
+            this._resolveNodeModule(requiredPath))));
     });
   },
 
@@ -228,15 +229,15 @@ type.defineMethods({
     const {assetMap, platform} = this._cache;
     const assetPath = assetMap.resolve(requiredPath, platform);
     if (assetPath) {
-      return this._moduleCache.getAssetModule(assetPath);
+      return Promise(this._moduleCache.getAssetModule(assetPath));
     }
 
-    throw new UnableToResolveError();
+    return Promise.reject(new UnableToResolveError());
   },
 
   _resolveHasteModule(requiredPath) {
     if (!isModuleName(requiredPath)) {
-      throw new UnableToResolveError();
+      return Promise.reject(new UnableToResolveError());
     }
 
     const {hasteMap, platform} = this._cache;
@@ -244,7 +245,7 @@ type.defineMethods({
 
     let dep = hasteMap.getModule(moduleName, platform);
     if (dep && dep.type === 'Module') {
-      return dep;
+      return Promise(dep);
     }
 
     // Find the package of a path like 'fbjs/src/Module.js' or 'fbjs'.
@@ -276,7 +277,7 @@ type.defineMethods({
       });
     }
 
-    throw new UnableToResolveError();
+    return Promise.reject(new UnableToResolveError());
   },
 
   _resolveLotusModule(requiredPath) {

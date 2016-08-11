@@ -161,7 +161,7 @@ type.defineMethods({
     }
     this._dependers.delete(module);
     dependers.forEach(depender => {
-      const resolution = this._resolutions[depender.path];
+      const resolution = this._resolutions.get(depender);
       if (resolution) {
         resolution.markDirty(module.path);
       } else {

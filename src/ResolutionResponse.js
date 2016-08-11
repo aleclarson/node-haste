@@ -35,22 +35,17 @@ type.defineValues({
   _cache: fromArgs('cache'),
 })
 
+// TODO: Stop these listeners when this
+//       ResolutionResponse is no longer in use.
 type.initInstance(function() {
-  // TODO: Stop these listeners when this
-  //       ResolutionResponse is no longer in use.
-  this._cache.didCreate(module => {
-    if (this.dependencies) {
-      this.dependencies.push(module);
-    } else {
-      this.dependencies = [module];
-      this._mainModule = module;
-    }
-  }).start();
 
-  this._cache.didDelete(module => {
-    const index = this.dependencies.indexOf(module);
-    this.dependencies.splice(index, 1);
-  }).start();
+  this._cache
+    .didCreate(module => this._addDependency(module))
+    .start();
+
+  this._cache
+    .didDelete(module => this._removeDependency(module))
+    .start();
 })
 
 type.defineMethods({
@@ -80,6 +75,10 @@ type.defineMethods({
     return this._cache.getResolution(module);
   },
 
+  deleteResolution(module) {
+    this._cache.deleteResolution(module);
+  },
+
   allResolved(options) {
     return this._cache.allResolved(options)
     .then(() => {
@@ -95,7 +94,31 @@ type.defineMethods({
 
   gatherInverseDependencies(module) {
     return this._cache.gatherInverseDependencies(module);
-  }
+  },
+
+  _addDependency(module) {
+    if (this.dependencies) {
+      this.dependencies.push(module);
+    } else {
+      this.dependencies = [module];
+      this._mainModule = module;
+    }
+  },
+
+  _removeDependency(module) {
+    if (!this.dependencies) {
+      return;
+    }
+    const index = this.dependencies.indexOf(module);
+    if (index === -1) {
+      return;
+    }
+    if (this.dependencies.length === 1) {
+      this.dependencies = null;
+    } else {
+      this.dependencies.splice(index, 1);
+    }
+  },
 })
 
 module.exports = type.build()

@@ -85,7 +85,7 @@ type.defineMethods({
     }
 
     record.data[field] = loaderPromise
-      .then(data => Promise.all([
+      .then(data => Promise.map([
         data,
         fs.async.stats(filepath),
       ]))
@@ -119,7 +119,7 @@ type.defineMethods({
       const fieldValues = getObjectValues(record.data);
 
       return Promise
-      .all(fieldValues)
+      .map(fieldValues)
       .then(ref => {
         const ret = Object.create(null);
         ret.metadata = record.metadata;

@@ -43,6 +43,8 @@ type.defineValues({
 
   _packages: PureObject.create,
 
+  _moduleIds: PureObject.create,
+
   _packageModuleMap: () => new WeakMap(),
 
   _cache: fromArgs('cache'),
@@ -75,9 +77,7 @@ type.defineMethods({
   },
 
   getCachedModule(modulePath) {
-    return this._modules[
-      modulePath.toLowerCase()
-    ];
+    return this._modules[modulePath];
   },
 
   getModule(modulePath) {
@@ -170,25 +170,38 @@ type.defineMethods({
   },
 
   removeModule(modulePath) {
-    delete this._modules[
-      modulePath.toLowerCase()
-    ];
+    this._removeModule(modulePath, this._modules);
   },
 
   removePackage(packagePath) {
-    delete this._packages[
-      packagePath.toLowerCase()
-    ];
+    this._removeModule(packagePath, this._packages);
   },
 
   _getModule(modulePath, moduleCache, createModule) {
-    const hash = modulePath.toLowerCase();
-    let module = moduleCache[hash];
+    let module = moduleCache[modulePath];
     if (!module) {
-      module = createModule();
-      moduleCache[hash] = module;
+      const moduleId = modulePath.toLowerCase();
+      const moduleType = moduleCache === this._modules ? 'module' : 'package';
+      const collision = this._moduleIds[moduleId];
+      if (collision && collision.moduleType === moduleType) {
+        throw Error(
+          `Two ${moduleType}s have identical 'moduleId' values:\n` +
+          `    ${collision.modulePath}\n` +
+          `    ${modulePath}`
+        );
+      } else {
+        this._moduleIds[moduleId] = {moduleType, modulePath};
+        moduleCache[modulePath] =
+          module = createModule();
+      }
     }
     return module;
+  },
+
+  _removeModule(modulePath, moduleCache) {
+    const moduleId = modulePath.toLowerCase();
+    delete this._moduleIds[moduleId];
+    delete moduleCache[modulePath];
   },
 
   _processFileChange(type, filePath, root) {
@@ -198,13 +211,13 @@ type.defineMethods({
     if (mod) {
       this._cache.invalidate(mod.path);
       if (type === 'delete') {
-        this.removeModule(mod);
+        this.removeModule(mod.path);
       }
     }
     if (pkg) {
       this._cache.invalidate(pkg.path);
       if (type === 'delete') {
-        this.removePackage(pkg);
+        this.removePackage(pkg.path);
       }
     }
   },

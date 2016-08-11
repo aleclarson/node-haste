@@ -414,7 +414,7 @@ describe('Module', () => {
     pit('exposes the transformed code rather than the raw file contents', () => {
       transformCode.mockReturnValue(Promise({code: exampleCode}));
       const module = createModule({transformCode});
-      return Promise.all([module.read(), module.getCode()])
+      return Promise.map([module.read(), module.getCode()])
         .then(([data, code]) => {
           expect(data.code).toBe(exampleCode);
           expect(code).toBe(exampleCode);
@@ -431,7 +431,7 @@ describe('Module', () => {
       const map = {version: 3};
       transformCode.mockReturnValue(Promise({map, code: exampleCode}));
       const module = createModule({transformCode});
-      return Promise.all([module.read(), module.getMap()])
+      return Promise.map([module.read(), module.getMap()])
         .then(([data, sourceMap]) => {
           expect(data.map).toBe(map);
           expect(sourceMap).toBe(map);

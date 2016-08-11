@@ -28,19 +28,23 @@ describe('DependencyGraph', function() {
   function getOrderedDependenciesAsJSON(dgraph, entryFile, platform, recursive = true) {
     return dgraph.getDependencies({entryFile, platform, recursive})
       .then(response => response.finalize())
-      .then(({ dependencies }) => Promise.all(dependencies.map(dep => Promise.all([
-        dep.getName(),
-        dep.getDependencies(),
-      ]).then(([name, moduleDependencies]) => ({
-        path: dep.path,
-        isJSON: dep.isJSON(),
-        isAsset: dep.isAsset(),
-        isAsset_DEPRECATED: dep.isAsset_DEPRECATED(),
-        isPolyfill: dep.isPolyfill(),
-        resolution: dep.resolution,
-        id: name,
-        dependencies: moduleDependencies,
-      })))
+      .then(({ dependencies }) =>
+        Promise.map(dependencies, (dep) =>
+          Promise.map([
+            dep.getName(),
+            dep.getDependencies(),
+          ]).then(([name, moduleDependencies]) => ({
+            path: dep.path,
+            isJSON: dep.isJSON(),
+            isAsset: dep.isAsset(),
+            isAsset_DEPRECATED: dep.isAsset_DEPRECATED(),
+            isPolyfill: dep.isPolyfill(),
+            resolution: dep.resolution,
+            id: name,
+            dependencies: moduleDependencies,
+          })
+        ))
+      ))
     ));
   }
 
@@ -5998,7 +6002,7 @@ describe('DependencyGraph', function() {
     pit('produces a deterministic tree if the "a" module resolves first', () => {
       const dependenciesPromise = getOrderedDependenciesAsJSON(dependencyGraph, 'index.js');
 
-      return Promise.all(callDeferreds.map(deferred => deferred.promise))
+      return Promise.map(callDeferreds, (deferred) => deferred.promise)
         .then(() => {
           const main = moduleReadDeferreds['/root/a.js'];
           main.promise.then(() => {

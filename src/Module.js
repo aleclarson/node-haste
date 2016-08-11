@@ -13,7 +13,6 @@ const Fastfs = require('./fastfs');
 const ModuleCache = require('./ModuleCache');
 const Promise = require('Promise');
 const PureObject = require('PureObject');
-const Resolver = require('./Resolver');
 const Type = require('Type');
 
 const assert = require('assert');
@@ -145,7 +144,7 @@ type.defineMethods({
       cacheKey('moduleData', transformOptions),
       () => {
         const fileContentPromise = this._fastfs.readFile(this.path);
-        return Promise.all([
+        return Promise.map([
           fileContentPromise,
           this._readDocBlock(fileContentPromise),
         ]).then(([source, {id, moduleDocBlock}]) => {

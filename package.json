@@ -14,6 +14,7 @@
     "implicitDependencies": [
       "child_process",
       "crypto",
+      "events",
       "fs",
       "os",
       "path",
@@ -21,6 +22,7 @@
     ]
   },
   "dependencies": {
+    "Event": "aleclarson/Event#2.0.1",
     "LazyVar": "aleclarson/LazyVar#2.1.0",
     "Promise": "aleclarson/Promise#1.0.0",
     "PureObject": "aleclarson/PureObject#1.0.0",
