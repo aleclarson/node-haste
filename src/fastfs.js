@@ -263,10 +263,6 @@ type.defineMethods({
       file = this._addChild(root, filePath);
     }
 
-    log.moat(1);
-    log.white(type, ' ');
-    log.yellow(lotus.relative(filePath));
-    log.moat(1);
     this.emit('change', type, relPath, rootPath, fstat);
   },
 

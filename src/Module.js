@@ -15,7 +15,6 @@ const Promise = require('Promise');
 const PureObject = require('PureObject');
 const Type = require('Type');
 
-const assert = require('assert');
 const crypto = require('crypto');
 const docblock = require('./utils/docblock');
 const emptyFunction = require('emptyFunction');
@@ -38,8 +37,10 @@ type.defineOptions({
   options: Object,
 })
 
-type.initArguments(([options]) => {
-  assert(!options.file.startsWith('.'), '\'options.file\' cannot be relative: ' + options.file);
+type.initArgs(([options]) => {
+  if (options.file.startsWith('.')) {
+    throw Error('\'options.file\' cannot be relative: ' + options.file);
+  }
 })
 
 type.defineValues({

@@ -30,10 +30,10 @@ const resolveFilePlatform = require('./utils/resolveFilePlatform');
 
 const type = Type('Resolution')
 
-type.argumentTypes = {
-  module: Module.Kind,
-  cache: ResolutionCache,
-}
+type.defineArgs({
+  module: Module.Kind.isRequired,
+  cache: ResolutionCache.isRequired,
+})
 
 type.defineValues({
 
