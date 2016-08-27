@@ -209,6 +209,11 @@ type.defineMethods({
       }
       requiredPath = redirectedPath;
 
+      // This happens when a module is imported with an incorrectly capitalized path.
+      if (this._moduleCache.hasConflict(requiredPath)) {
+        throw Error('Module already exists with identical hash: ' + requiredPath.toLowerCase());
+      }
+
       return this._resolveAssetModule(requiredPath)
 
       .fail(error =>

@@ -177,23 +177,28 @@ type.defineMethods({
     this._removeModule(packagePath, this._packages);
   },
 
+  hasConflict(modulePath) {
+    if (this._modules[modulePath] || this._packages[modulePath]) {
+      return false;
+    }
+    const moduleId = modulePath.toLowerCase();
+    return this._moduleIds[moduleId] != null;
+  },
+
   _getModule(modulePath, moduleCache, createModule) {
     let module = moduleCache[modulePath];
     if (!module) {
       const moduleId = modulePath.toLowerCase();
       const moduleType = moduleCache === this._modules ? 'module' : 'package';
+
       const collision = this._moduleIds[moduleId];
       if (collision && collision.moduleType === moduleType) {
-        throw Error(
-          `Two ${moduleType}s have identical 'moduleId' values:\n` +
-          `    ${collision.modulePath}\n` +
-          `    ${modulePath}`
-        );
-      } else {
-        this._moduleIds[moduleId] = {moduleType, modulePath};
-        moduleCache[modulePath] =
-          module = createModule();
+        return moduleCache[collision.modulePath];
       }
+
+      module = createModule();
+      moduleCache[modulePath] = module;
+      this._moduleIds[moduleId] = {moduleType, modulePath};
     }
     return module;
   },

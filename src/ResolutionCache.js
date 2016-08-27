@@ -137,6 +137,10 @@ type.defineMethods({
     }
   },
 
+  getDependers(module) {
+    return this._dependers.get(module);
+  },
+
   addDepender(module, depender) {
     let dependers = this._dependers.get(module);
     if (!dependers) {
@@ -170,20 +174,20 @@ type.defineMethods({
     });
   },
 
-  gatherInverseDependencies(module) {
-    return Promise(this._allResolved).then(() => {
-      if (module) {
-        return this._dependers[module.path] || new Set();
-      } else {
-        const dependers = new Map();
-        sync.each(this._dependers, (dependers, modulePath) => {
-          const module =
-          dependers.set(dependency, dependers);
-        });
-        return dependers;
-      }
-    });
-  },
+  // gatherInverseDependencies(module) {
+  //   return Promise(this._allResolved).then(() => {
+  //     if (module) {
+  //       return this._dependers[module.path] || new Set();
+  //     } else {
+  //       const dependers = new Map();
+  //       this._dependers.forEach((dependers, modulePath) => {
+  //         const module =
+  //         dependers.set(dependency, dependers);
+  //       });
+  //       return dependers;
+  //     }
+  //   });
+  // },
 
   _flushDirty({onProgress, onError}) {
     if (!this._dirty.size) {
